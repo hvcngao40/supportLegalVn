@@ -34,3 +34,6 @@ outputs/
 sqlite_data/legal_data.db
 # Bỏ qua tất cả file báo cáo phase trong thư mục planning
 .planning/reports/phase*
+
+# Test results
+test_result.txt

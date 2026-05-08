@@ -21,6 +21,7 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 - [x] **v1.2 Quality Assurance** - Phase 6 (Retrieval Evaluation)
 
 ## Recent Activity
+- **2026-05-08**: Milestone Summary for v3.0 generated.
 - **2026-05-06**: Phase 9 COMPLETE: Production deployment & infrastructure hardening. Added production-safe frontend API URL handling, strict backend production validation, JSON logging baseline, deployment runbook, Nginx config, and backup/restore scripts.
 - **2026-05-05**: Phase 18 COMPLETE: Tối ưu RAG & Qdrant - Hiệu năng. Implemented gRPC, Semantic Cache with persistent client, and metadata pre-filtering.
 - **2026-05-05**: Phase 17 COMPLETE: API Gateway Layer (Bảo vệ API & Rate Limit) implemented with cachetools and custom Circuit Breaker.
