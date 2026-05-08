@@ -38,7 +38,24 @@ class QdrantRetriever:
         try:
             from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 
-            self.embed_model = HuggingFaceEmbedding(model_name=requested_model)
+            # Mirror EMBEDDING_DEVICE behavior used elsewhere to allow easy CPU/GPU switching.
+            device_pref = os.getenv("EMBEDDING_DEVICE", "auto").lower()
+            if device_pref not in ("auto", "cpu", "cuda", "gpu"):
+                device_pref = "auto"
+
+            if device_pref == "auto":
+                device = "cuda" if (os.getenv("FORCE_DISABLE_CUDA", "") == "" and __import__("torch").cuda.is_available()) else "cpu"
+            elif device_pref in ("cuda", "gpu"):
+                device = "cuda"
+            else:
+                device = "cpu"
+
+            # Pass device hint to HuggingFaceEmbedding if supported.
+            try:
+                self.embed_model = HuggingFaceEmbedding(model_name=requested_model, model_kwargs={"device": device})
+            except TypeError:
+                # Older versions may not accept model_kwargs; fall back to simple constructor.
+                self.embed_model = HuggingFaceEmbedding(model_name=requested_model)
         except Exception as e:
             print(f"[Warning] Qdrant embed model unavailable: {e}")
             self.embed_model = None

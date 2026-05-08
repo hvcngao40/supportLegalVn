@@ -30,11 +30,26 @@ class VietnameseSBERTProvider(EmbeddingProvider):
         requested_model = model_name or os.getenv("EMBEDDING_MODEL_NAME", SAFE_EMBEDDING_MODEL_NAME)
         self.model_name = requested_model
         
-        # Auto-detect device
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"Using device: {device} for embedding model")
+        # Determine device mode from environment for easy switching between CPU/GPU/auto.
+        # EMBEDDING_DEVICE: one of 'auto' (default), 'cpu', 'cuda'
+        device_pref = os.getenv("EMBEDDING_DEVICE", "auto").lower()
+        if device_pref not in ("auto", "cpu", "cuda", "gpu"):
+            logger.warning(
+                "Unknown EMBEDDING_DEVICE='%s', falling back to 'auto'", device_pref
+            )
+            device_pref = "auto"
+
+        if device_pref == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        elif device_pref in ("cuda", "gpu"):
+            device = "cuda"
+        else:
+            device = "cpu"
+
+        logger.info(f"Embedding device mode: requested=%s -> using device=%s", device_pref, device)
 
         try:
+            # SentenceTransformer accepts a device string like 'cpu' or 'cuda'
             self.model = SentenceTransformer(requested_model, device=device)
         except Exception as exc:
             if requested_model == SAFE_EMBEDDING_MODEL_NAME:
@@ -61,7 +76,6 @@ class VietnameseSBERTProvider(EmbeddingProvider):
         embeddings = self.model.encode(texts, batch_size=64, show_progress_bar=False)
         return embeddings.tolist()
 
-from fastembed import SparseTextEmbedding
 
 class SparseEmbeddingProvider:
     """Sử dụng SPLADE hoặc BM25 từ fastembed để tạo Sparse Vectors.

@@ -1,0 +1,48 @@
+version: '3.9'
+
+# docker-compose.gpu.yml — chỉ thêm service api-gpu để test song song với stack cũ
+# Cách chạy:
+#   docker compose -f docker-compose.gpu.yml up --build
+# Yêu cầu:
+#   - stack cũ (đã có qdrant) đang chạy trên network `legal-network`
+#   - NVIDIA Container Toolkit hoặc Docker Desktop GPU support
+
+services:
+  api-gpu:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    container_name: legal-api-gpu
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6334
+      - SQLITE_DB_PATH=/data/legal_poc.db
+      # Enable GPU embeddings (CUDA mode)
+      - EMBEDDING_DEVICE=cuda
+    networks:
+      - legal-network
+    volumes:
+      - ./sqlite_data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  legal-network:
+    external: true
+    name: legal-network

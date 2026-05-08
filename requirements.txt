@@ -18,6 +18,15 @@ google-genai
 qdrant-client
 llama-index-vector-stores-qdrant
 llama-index-embeddings-huggingface
+# Bắt buộc phải có dòng này ở đầu file để chỉ đường cho pip tìm bản CPU
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Cài bản CPU cho Windows (Môi trường dev local của bạn)
+torch==2.5.0+cpu ; sys_platform == "win32"
+
+# Cho phép môi trường Linux (Docker GPU) xài bản >= 2.5.0 để nó nhận diện
+# và giữ nguyên bản 2.5.1 đã có sẵn trong Base Image, không bắt tải lại 3GB
+torch>=2.5.0 ; sys_platform != "win32"
 
 # --- Observability & Evaluation ---
 ragas

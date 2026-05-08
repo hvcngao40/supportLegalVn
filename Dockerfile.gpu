@@ -1,0 +1,39 @@
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
+
+# CUDA 12.4 runtime with cuDNN9 (torch already included in base)
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    sqlite3 \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies with increased timeout and retries
+# torch is already in pytorch base image, so no need to reinstall
+# Using --retries 5 and --default-timeout=1000 to handle network issues in large downloads
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip setuptools wheel && \
+    pip install --default-timeout=1000 --retries 5 \
+    --no-build-isolation -r requirements.txt || \
+    (echo "First attempt failed, retrying with more aggressive timeout..." && \
+     pip install --default-timeout=2000 --retries 10 -r requirements.txt)
+
+# Copy app code
+COPY . .
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=10s \
+    CMD curl -f http://127.0.0.1:8000/ || exit 1
+
+# Run app
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+
