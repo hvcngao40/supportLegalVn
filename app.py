@@ -86,6 +86,7 @@ def _required_secret_names() -> set[str]:
         "deepseek": "DEEPSEEK_API_KEY",
         "qwen": "DASHSCOPE_API_KEY",
         "dashscope": "DASHSCOPE_API_KEY",
+        "openrouter": "OPENROUTER_API_KEY",
     }
     for env_name in ("CLASSIFIER_PROVIDER", "CLASSIFIER_FALLBACK_PROVIDER", "GENERATION_PROVIDER"):
         provider = os.getenv(env_name, "").strip().lower()

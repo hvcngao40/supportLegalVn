@@ -5,9 +5,12 @@ import time
 import aiosqlite
 from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple
 
+import torch
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core import QueryBundle
 from llama_index.core.schema import NodeWithScore, TextNode
+from sentence_transformers import CrossEncoder
+
 # from sentence_transformers import CrossEncoder
 
 from core.classifier import LegalQueryClassifier
@@ -18,6 +21,8 @@ from tools.gemini_client import GeminiClient
 from tools.groq_client import GroqClient
 from tools.deepseek_client import DeepSeekClient
 from tools.qwen_dashscope_client import QwenDashScopeClient
+from tools.qwen_ollama_client import QwenOllamaClient
+from tools.openrouter_client import OpenRouterClient
 from core.security import llm_circuit_breaker
 from db.qdrant import QdrantManager
 # import torch
@@ -106,15 +111,15 @@ class LegalHybridRetriever(BaseRetriever):
         self.use_classifier = use_classifier
         self.use_fts_fallback = use_fts_fallback
 
-        # reranker_model = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
-        # try:
-        #     device = "cuda" if torch.cuda.is_available() else "cpu"
-        #     self._reranker = CrossEncoder(reranker_model, device=device)
-        #     print(f"[OK] Reranker loaded: {reranker_model} on {device}")
-        # except Exception as e:
-        #     print(f"[Warning] Failed to load reranker: {e}. Reranking will be skipped.")
-        #     self._reranker = None
-        self._reranker = None  # Reranker is currently disabled due to loading issues; can be re-enabled when resolved.
+        reranker_model = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+        try:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._reranker = CrossEncoder(reranker_model, device=device)
+            print(f"[OK] Reranker loaded: {reranker_model} on {device}")
+        except Exception as e:
+            print(f"[Warning] Failed to load reranker: {e}. Reranking will be skipped.")
+            self._reranker = None
+        # self._reranker = None  # Reranker is currently disabled due to loading issues; can be re-enabled when resolved.
 
         super().__init__()
 
@@ -272,16 +277,16 @@ class LegalHybridRetriever(BaseRetriever):
     async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
         query_str = query_bundle.query_str
 
-        # start_time = time.time()
-        # if self.use_classifier and self.classifier is not None:
-        #     try:
-        #         _classification = await self.classifier.classify(query_str)
-        #         _domains = getattr(_classification, "domains", []) or []
-        #     except Exception:
-        #         pass
+        start_time = time.time()
+        if self.use_classifier and self.classifier is not None:
+            try:
+                _classification = await self.classifier.classify(query_str)
+                _domains = getattr(_classification, "domains", []) or []
+            except Exception:
+                pass
 
         classifier_time = time.time()
-        # print(f"[Retriever] Classification time: {classifier_time - start_time:.2f}s, domains: {_domains if 'domains' in locals() else 'N/A'}")
+        print(f"[Retriever] Classification time: {classifier_time - start_time:.2f}s, domains: {_domains if 'domains' in locals() else 'N/A'}")
 
         article_candidates = await self._retrieve_article_candidates(query_bundle, query_str)
         retriever_time = time.time()
@@ -290,27 +295,27 @@ class LegalHybridRetriever(BaseRetriever):
         if not article_candidates:
             return []
 
-        # if self._reranker is not None:
-        #     rerank_pool = article_candidates[: self.rerank_input_size]
-        #     valid_pairs: List[Tuple[str, str]] = []
-        #     valid_nodes: List[NodeWithScore] = []
-        #
-        #     for candidate in rerank_pool:
-        #         content = _build_article_rerank_text(candidate.node)
-        #         if content.strip():
-        #             valid_pairs.append((query_str, content))
-        #             valid_nodes.append(candidate)
-        #
-        #     if valid_pairs:
-        #         scores = self._reranker.predict(valid_pairs)
-        #         reranked = sorted(zip(valid_nodes, scores), key=lambda x: -x[1])
-        #         results = [
-        #             NodeWithScore(node=item[0].node, score=float(item[1]))
-        #             for item in reranked[: self.top_k]
-        #         ]
-        #         if results:
-        #             print("[Retriever] Reranking time: {:.2f}s".format(time.time() - retriever_time))
-        #             return results
+        if self._reranker is not None:
+            rerank_pool = article_candidates[: self.rerank_input_size]
+            valid_pairs: List[Tuple[str, str]] = []
+            valid_nodes: List[NodeWithScore] = []
+
+            for candidate in rerank_pool:
+                content = _build_article_rerank_text(candidate.node)
+                if content.strip():
+                    valid_pairs.append((query_str, content))
+                    valid_nodes.append(candidate)
+
+            if valid_pairs:
+                scores = self._reranker.predict(valid_pairs)
+                reranked = sorted(zip(valid_nodes, scores), key=lambda x: -x[1])
+                results = [
+                    NodeWithScore(node=item[0].node, score=float(item[1]))
+                    for item in reranked[: self.top_k]
+                ]
+                if results:
+                    print("[Retriever] Reranking time: {:.2f}s".format(time.time() - retriever_time))
+                    return results
 
         # Fallback when reranker is absent or produces no output.
         return article_candidates[: self.top_k]
@@ -373,6 +378,10 @@ class LegalRAGPipeline:
             return DeepSeekClient(model_name=model_name or "deepseek-chat")
         elif provider == "dashscope":
             return QwenDashScopeClient(model_name=model_name or "qwen-plus")
+        elif provider == "ollama":
+            return QwenOllamaClient(model_name=model_name or os.getenv("OLLAMA_MODEL", "qwen-2.5:3b"))
+        elif provider == "openrouter":
+            return OpenRouterClient(model_name=model_name)
         else:
             raise ValueError(f"Unsupported generation provider: {provider}")
 

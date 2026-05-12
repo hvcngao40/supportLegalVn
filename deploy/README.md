@@ -51,6 +51,10 @@ Restore should only be run while the stack is stopped.
 3. Redeploy the backend stack.
 4. Rotate the Vercel environment variable if the frontend origin changes.
 
+### OpenRouter note
+
+If `CLASSIFIER_PROVIDER` or `GENERATION_PROVIDER` is set to `openrouter`, make sure `OPENROUTER_API_KEY` is present in the backend `.env` file or secret store. Optional settings: `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL`, `OPENROUTER_APP_URL`, and `OPENROUTER_APP_TITLE`.
+
 ## Quick incident checks
 
 - `docker compose ps`

@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -8,6 +9,24 @@ from tools.qwen_dashscope_client import QwenDashScopeClient
 from tools.qwen_ollama_client import QwenOllamaClient
 from tools.deepseek_client import DeepSeekClient
 from tools.groq_client import GroqClient
+from tools.openrouter_client import OpenRouterClient
+
+
+def _default_model_for_provider(provider_name: str) -> str:
+    provider_name = provider_name.lower()
+    if provider_name == "gemini":
+        return "gemini-2.0-flash"
+    if provider_name == "dashscope":
+        return "qwen-plus"
+    if provider_name == "ollama":
+        return "qwen-14b-chat"
+    if provider_name == "deepseek":
+        return "deepseek-chat"
+    if provider_name == "groq":
+        return "llama-3.1-8b-instant"
+    if provider_name == "openrouter":
+        return os.getenv("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    return "llama-3.1-8b-instant"
 
 class QueryClassification(BaseModel):
     """Schema for legal query classification results."""
@@ -34,12 +53,12 @@ class LegalQueryClassifier:
         self,
         provider: str = "groq",
         fallback_provider: str = "gemini",
-        model_name: str = "llama-3.1-8b-instant",
+        model_name: Optional[str] = None,
         api_key: Optional[str] = None,
     ):
         self.provider = provider.lower()
         self.fallback_provider = fallback_provider.lower()
-        self.model_name = model_name
+        self.model_name = model_name or _default_model_for_provider(self.provider)
         self.api_key = api_key
         self._clients: Dict[str, Any] = {}
 
@@ -84,10 +103,10 @@ Chú ý: DeepSeek, hãy phân tích kỹ ngữ cảnh pháp lý để đưa ra d
         return await client.generate_content_async(prompt)
 
     def _get_client(self, provider_name: str) -> Any:
+        provider_name = provider_name.lower()
         if provider_name in self._clients:
             return self._clients[provider_name]
 
-        provider_name = provider_name.lower()
         if provider_name == "gemini":
             model_name = self.model_name if self.model_name.startswith("gemini") else "gemini-2.0-flash"
             client = GeminiClient(model_name=model_name, api_key=self.api_key)
@@ -99,6 +118,8 @@ Chú ý: DeepSeek, hãy phân tích kỹ ngữ cảnh pháp lý để đưa ra d
             client = DeepSeekClient(model_name=self.model_name, api_key=self.api_key)
         elif provider_name == "groq":
             client = GroqClient(model_name=self.model_name, api_key=self.api_key)
+        elif provider_name == "openrouter":
+            client = OpenRouterClient(model_name=self.model_name)
         else:
             raise ValueError(f"Unsupported classifier provider: {provider_name}")
 
