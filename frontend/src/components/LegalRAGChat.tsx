@@ -10,7 +10,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface Retrieval {
   source: string;
@@ -50,6 +50,11 @@ export const LegalRAGChat: React.FC = () => {
   const [error, setError] = useState('');
   const [showRetrievals, setShowRetrievals] = useState(false);
   const [cacheHit, setCacheHit] = useState(false);
+  const [retrievals, setRetrievals] = useState<Retrieval[]>([]);
+  const [selectedRetrievalIdx, setSelectedRetrievalIdx] = useState<number>(0);
+  const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
 
   /**
    * Phase 1: Send query to backend RAG pipeline
@@ -83,8 +88,10 @@ export const LegalRAGChat: React.FC = () => {
         throw new Error(`Unexpected response status: ${data.status}`);
       }
 
-      // Step 3: Track cache hit for UI display
+      // Step 3: Track cache hit for UI display and store retrievals
       setCacheHit(data.metadata.cache_hit);
+      setRetrievals(data.retrievals || []);
+      setSelectedRetrievalIdx(0);
 
       // Step 4: Run LLM generation (frontend responsibility)
       const answer = await generateWithLLM(data.prompt, data.retrievals);
@@ -106,6 +113,15 @@ export const LegalRAGChat: React.FC = () => {
       setIsLoading(false);
     }
   };
+
+  useEffect(() => {
+    try {
+      const dismissed = localStorage.getItem('phase20_modal_dismissed');
+      if (!dismissed) setShowModal(true);
+    } catch (e) {
+      // ignore localStorage errors
+    }
+  }, []);
 
   /**
    * Phase 2: Send prompt to external LLM (e.g., OpenAI, Gemini)
@@ -189,6 +205,44 @@ export const LegalRAGChat: React.FC = () => {
   };
 
   /**
+   * Build a user-facing prompt that can be copied into external chat UIs.
+   * This includes a short system instruction in Vietnamese, the original query and
+   * a short list of citations/snippets.
+   */
+  const buildExternalPrompt = (query: string, retrievalsList: Retrieval[]) => {
+    const system = `Bạn là một trợ lý pháp lý. Hãy trả lời ngắn gọn, chính xác, và chỉ dựa trên các trích dẫn pháp luật được cung cấp. Nếu cần, trích dẫn nguồn (số hiệu văn bản hoặc tiêu đề).`;
+
+    const snippets = retrievalsList.slice(0, 5).map((r, i) => `Nguồn ${i + 1}: ${r.source}\n"${r.text.replace(/\n/g, ' ')}"`).join('\n\n');
+
+    const prompt = `${system}\n\nYêu cầu: ${query}\n\nTài liệu tham khảo:\n${snippets}\n\nTrả lời (tiếng Việt):`;
+    return prompt;
+  };
+
+  /**
+   * Copy prompt to clipboard and open external chat in a new tab.
+   * Note: Browsers do not allow injecting text into another origin's page DOM.
+   * We copy the prepared prompt to clipboard and open the external chat URL so
+   * the user can simply paste (Ctrl+V) and press Enter.
+   */
+  const handleCopyAndOpen = async (service: 'chatgpt' | 'gemini') => {
+    try {
+      const promptText = buildExternalPrompt(chatHistory[chatHistory.length - 1]?.content || '', retrievals);
+      await navigator.clipboard.writeText(promptText);
+
+      const url = service === 'chatgpt' ? 'https://chat.openai.com/' : 'https://gemini.google.com/';
+      // Open in new tab
+      window.open(url, '_blank', 'noopener');
+
+      setCopiedNotice(`Đã sao chép prompt. Trang ${service === 'chatgpt' ? 'ChatGPT' : 'Gemini'} sẽ mở trong tab mới. Nhấn Ctrl+V (hoặc dán) và Enter để gửi.`);
+      setTimeout(() => setCopiedNotice(null), 8000);
+    } catch (err) {
+      console.error('Copy failed', err);
+      setCopiedNotice('Không thể sao chép prompt tự động. Vui lòng sao chép thủ công.');
+      setTimeout(() => setCopiedNotice(null), 5000);
+    }
+  };
+
+  /**
    * UI Component for chat interface
    */
   return (
@@ -197,6 +251,17 @@ export const LegalRAGChat: React.FC = () => {
       <div className="bg-blue-600 text-white p-4">
         <h1 className="text-2xl font-bold">Hỏi Đáp Pháp Luật Việt Nam</h1>
         <p className="text-sm mt-1">Vietnamese Legal Q&A System (Phase 19 - Redis Cache)</p>
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            title="Hướng dẫn: Mở chat ngoài và dán prompt"
+            className="bg-white/10 hover:bg-white/20 text-white rounded px-2 py-1 text-xs"
+          >
+            ? Hướng dẫn
+          </button>
+          <div className="text-xs text-white/80">Nhấn nút ChatGPT hoặc Gemini để sao chép prompt và mở trang chat.</div>
+        </div>
         {cacheHit && (
           <p className="text-green-200 text-sm mt-2 font-semibold">
             ⚡ Cache hit! Faster retrieval from Redis.
@@ -243,19 +308,111 @@ export const LegalRAGChat: React.FC = () => {
       </div>
 
       {/* Retrievals Display (Optional) */}
-      {showRetrievals && chatHistory.length > 0 && (
-        <div className="bg-gray-100 p-4 max-h-32 overflow-y-auto">
+      {showRetrievals && retrievals.length > 0 && (
+        <div className="bg-gray-100 p-4 max-h-56 overflow-y-auto">
           <h3 className="font-bold text-sm mb-2">Tài liệu liên quan:</h3>
           <div className="space-y-2">
-            {/* Note: We'd need to track retrievals from responses to display here */}
-            <p className="text-xs text-gray-600">
-              (Retrievals from latest query would be shown here)
-            </p>
+            {retrievals.map((r, idx) => (
+              <div
+                key={idx}
+                onClick={() => setSelectedRetrievalIdx(idx)}
+                className={`p-2 rounded cursor-pointer ${selectedRetrievalIdx === idx ? 'bg-blue-50 border-l-4 border-blue-400' : 'bg-white border'}`}
+              >
+                <div className="flex justify-between items-center">
+                  <div className="text-xs font-semibold">{r.source}</div>
+                  <div className="text-xs text-gray-500">score: {r.score.toFixed(2)}</div>
+                </div>
+                <p className="text-sm text-gray-700 mt-1 truncate">{r.text}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Preview + External Chat Buttons */}
+          <div className="mt-3 border-t pt-3">
+            <h4 className="font-medium text-sm mb-1">Xem trước trích đoạn</h4>
+            <div className="bg-white p-3 border rounded mb-2">
+              <p className="text-sm text-gray-800">{retrievals[selectedRetrievalIdx]?.text}</p>
+              <p className="text-xs text-gray-500 mt-2">Nguồn: {retrievals[selectedRetrievalIdx]?.source}</p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => handleCopyAndOpen('chatgpt')}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded px-3 py-2 text-sm"
+              >
+                Mở ChatGPT (sao chép prompt)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleCopyAndOpen('gemini')}
+                className="bg-gray-700 hover:bg-gray-800 text-white rounded px-3 py-2 text-sm"
+              >
+                Mở Gemini (sao chép prompt)
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const promptText = buildExternalPrompt(chatHistory[chatHistory.length - 1]?.content || '', retrievals);
+                  try {
+                    await navigator.clipboard.writeText(promptText);
+                    setCopiedNotice('Đã sao chép prompt vào clipboard.');
+                    setTimeout(() => setCopiedNotice(null), 3000);
+                  } catch {
+                    setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công.');
+                    setTimeout(() => setCopiedNotice(null), 3000);
+                  }
+                }}
+                className="bg-gray-400 hover:bg-gray-500 text-white rounded px-3 py-2 text-sm"
+              >
+                Chỉ sao chép prompt
+              </button>
+            </div>
+            {copiedNotice && (
+              <div className="mt-2 text-sm text-green-700">{copiedNotice}</div>
+            )}
           </div>
         </div>
       )}
 
       {/* Input Area */}
+      {/* Modal: Quick UX guide */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black opacity-40" onClick={() => setShowModal(false)} />
+          <div className="relative bg-white rounded-lg max-w-xl w-[90%] p-6 shadow-lg z-10">
+            <h3 className="text-lg font-semibold mb-2">Hướng dẫn: Mở ChatGPT / Gemini với prompt đã chuẩn bị</h3>
+            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
+              <li>Nhấn một trong các nút "Mở ChatGPT" hoặc "Mở Gemini" — hệ thống sẽ sao chép prompt vào clipboard và mở trang chat trong tab mới.</li>
+              <li>Chuyển sang tab ChatGPT/Gemini, dán nội dung (Ctrl+V hoặc dán) vào ô chat, sau đó nhấn Enter để gửi.</li>
+              <li>Nếu dùng điện thoại: chạm và giữ ô chat > Dán > Gửi.</li>
+            </ol>
+            <div className="mt-4 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={dontShowAgain}
+                  onChange={(e) => setDontShowAgain(e.target.checked)}
+                />
+                Không hiển thị lại
+              </label>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    if (dontShowAgain) {
+                      try { localStorage.setItem('phase20_modal_dismissed', '1'); } catch {}
+                    }
+                    setShowModal(false);
+                  }}
+                  className="bg-blue-600 text-white px-3 py-1 rounded"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="border-t bg-white p-4">
         <form
           onSubmit={(e) => {
