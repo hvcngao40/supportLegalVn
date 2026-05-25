@@ -10,7 +10,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 
 interface Retrieval {
   source: string;
@@ -53,11 +53,21 @@ export const LegalRAGChat: React.FC = () => {
   const [retrievals, setRetrievals] = useState<Retrieval[]>([]);
   const [selectedRetrievalIdx, setSelectedRetrievalIdx] = useState<number>(0);
   const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return !localStorage.getItem('phase20_modal_dismissed');
+    } catch {
+      return false;
+    }
+  });
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
-  const [clipboardSupported, setClipboardSupported] = useState(true);
+  const [clipboardSupported, setClipboardSupported] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return !!navigator?.clipboard;
+  });
 
   /**
    * Phase 1: Send query to backend RAG pipeline
@@ -97,7 +107,7 @@ export const LegalRAGChat: React.FC = () => {
       setSelectedRetrievalIdx(0);
 
       // Step 4: Run LLM generation (frontend responsibility)
-      const answer = await generateWithLLM(data.prompt, data.retrievals);
+      const answer = await generateWithLLM(data.prompt);
 
       // Step 5: Update chat history
       const newChatHistory: MessageRole[] = [
@@ -117,37 +127,27 @@ export const LegalRAGChat: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    try {
-      const dismissed = localStorage.getItem('phase20_modal_dismissed');
-      if (!dismissed) setShowModal(true);
-    } catch (e) {
-      // ignore localStorage errors
-    }
-    try {
-      // feature-detect clipboard API in client
-      if (typeof window !== 'undefined' && !navigator?.clipboard) setClipboardSupported(false);
-    } catch (e) {
-      setClipboardSupported(false);
-    }
-  }, []);
-              <button
-                type="button"
-                onClick={() => {
-                  // Open editable prompt modal so user can review before copying
-                  const lastUser = (() => {
-                    for (let i = chatHistory.length - 1; i >= 0; i--) {
+
+  /**
+   * Phase 2: Send prompt to external LLM (e.g., OpenAI, Gemini)
+   *
+   * This is the frontend's responsibility when ENABLE_LLM_GENERATION=false
+   */
+  const generateWithLLM = async (prompt: string): Promise<string> => {
+    // Example: Call OpenAI API
+    // const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+
+    // For demo, we'll show both OpenAI and Gemini examples
+
+    // EXAMPLE 1: Using OpenAI
+    // const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    //   method: 'POST',
+    //   headers: {
+    //     'Authorization': `Bearer ${apiKey}`,
     //     'Content-Type': 'application/json',
     //   },
     //   body: JSON.stringify({
     //     model: 'gpt-4',
-                  setPromptDraft(buildExternalPrompt(lastUser || userQuery, retrievals));
-                  setShowPromptModal(true);
-                }}
-                className="bg-gray-400 hover:bg-gray-500 text-white rounded px-3 py-2 text-sm"
-              >
-                Chỉ sao chép prompt
-              </button>
     //     messages: [
     //       {
     //         role: 'system',
@@ -203,9 +203,9 @@ export const LegalRAGChat: React.FC = () => {
       }
 
       throw new Error('Invalid Gemini response');
-    } catch (err) {
-      console.error('LLM generation error:', err);
-      return `Error generating response: ${err instanceof Error ? err.message : 'Unknown error'}`;
+    } catch (_err) {
+      console.error('LLM generation error:', _err);
+      return `Error generating response: ${_err instanceof Error ? _err.message : 'Unknown error'}`;
     }
   };
 
@@ -223,6 +223,13 @@ export const LegalRAGChat: React.FC = () => {
     return prompt;
   };
 
+  const getLastUserQuery = () => {
+    for (let i = chatHistory.length - 1; i >= 0; i--) {
+      if (chatHistory[i].role === 'user') return chatHistory[i].content;
+    }
+    return userQuery;
+  };
+
   /**
    * Copy prompt to clipboard and open external chat in a new tab.
    * Note: Browsers do not allow injecting text into another origin's page DOM.
@@ -231,7 +238,7 @@ export const LegalRAGChat: React.FC = () => {
    */
   const handleCopyAndOpen = async (service: 'chatgpt' | 'gemini') => {
     try {
-      const promptText = buildExternalPrompt(chatHistory[chatHistory.length - 1]?.content || '', retrievals);
+      const promptText = buildExternalPrompt(getLastUserQuery(), retrievals);
       await navigator.clipboard.writeText(promptText);
 
       const url = service === 'chatgpt' ? 'https://chat.openai.com/' : 'https://gemini.google.com/';
@@ -240,8 +247,8 @@ export const LegalRAGChat: React.FC = () => {
 
       setCopiedNotice(`Đã sao chép prompt. Trang ${service === 'chatgpt' ? 'ChatGPT' : 'Gemini'} sẽ mở trong tab mới. Nhấn Ctrl+V (hoặc dán) và Enter để gửi.`);
       setTimeout(() => setCopiedNotice(null), 8000);
-    } catch (err) {
-      console.error('Copy failed', err);
+    } catch (_err) {
+      console.error('Copy failed', _err);
       setCopiedNotice('Không thể sao chép prompt tự động. Vui lòng sao chép thủ công.');
       setTimeout(() => setCopiedNotice(null), 5000);
     }
@@ -357,16 +364,9 @@ export const LegalRAGChat: React.FC = () => {
               </button>
               <button
                 type="button"
-                onClick={async () => {
-                  const promptText = buildExternalPrompt(chatHistory[chatHistory.length - 1]?.content || '', retrievals);
-                  try {
-                    await navigator.clipboard.writeText(promptText);
-                    setCopiedNotice('Đã sao chép prompt vào clipboard.');
-                    setTimeout(() => setCopiedNotice(null), 3000);
-                  } catch {
-                    setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công.');
-                    setTimeout(() => setCopiedNotice(null), 3000);
-                  }
+                onClick={() => {
+                  setPromptDraft(buildExternalPrompt(getLastUserQuery(), retrievals));
+                  setShowPromptModal(true);
                 }}
                 className="bg-gray-400 hover:bg-gray-500 text-white rounded px-3 py-2 text-sm"
               >
@@ -403,7 +403,7 @@ export const LegalRAGChat: React.FC = () => {
                       setCopiedNotice('Đã sao chép prompt vào clipboard.');
                       setShowPromptModal(false);
                       setTimeout(() => setCopiedNotice(null), 4000);
-                    } catch (err) {
+                    } catch {
                       setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công từ ô dưới.');
                       setClipboardSupported(false);
                     }
@@ -421,7 +421,7 @@ export const LegalRAGChat: React.FC = () => {
                       setCopiedNotice('Đã sao chép prompt và mở ChatGPT.');
                       setShowPromptModal(false);
                       setTimeout(() => setCopiedNotice(null), 5000);
-                    } catch (err) {
+                    } catch {
                       setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công và mở ChatGPT.');
                       setClipboardSupported(false);
                     }
@@ -439,7 +439,7 @@ export const LegalRAGChat: React.FC = () => {
                       setCopiedNotice('Đã sao chép prompt và mở Gemini.');
                       setShowPromptModal(false);
                       setTimeout(() => setCopiedNotice(null), 5000);
-                    } catch (err) {
+                    } catch {
                       setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công và mở Gemini.');
                       setClipboardSupported(false);
                     }
@@ -468,9 +468,9 @@ export const LegalRAGChat: React.FC = () => {
           <div className="relative bg-white rounded-lg max-w-xl w-[90%] p-6 shadow-lg z-10">
             <h3 className="text-lg font-semibold mb-2">Hướng dẫn: Mở ChatGPT / Gemini với prompt đã chuẩn bị</h3>
             <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
-              <li>Nhấn một trong các nút "Mở ChatGPT" hoặc "Mở Gemini" — hệ thống sẽ sao chép prompt vào clipboard và mở trang chat trong tab mới.</li>
+              <li>Nhấn một trong các nút &quot;Mở ChatGPT&quot; hoặc &quot;Mở Gemini&quot; — hệ thống sẽ sao chép prompt vào clipboard và mở trang chat trong tab mới.</li>
               <li>Chuyển sang tab ChatGPT/Gemini, dán nội dung (Ctrl+V hoặc dán) vào ô chat, sau đó nhấn Enter để gửi.</li>
-              <li>Nếu dùng điện thoại: chạm và giữ ô chat > Dán > Gửi.</li>
+              <li>Nếu dùng điện thoại: chạm và giữ ô chat &gt; Dán &gt; Gửi.</li>
             </ol>
             <div className="mt-4 flex items-center justify-between">
               <label className="flex items-center gap-2 text-sm text-gray-600">
