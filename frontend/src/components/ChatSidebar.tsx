@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Message } from "@/app/page";
-import { Send, Loader2, Bot, User, AlertTriangle } from "lucide-react";
+import { Send, Bot, User, AlertTriangle } from "lucide-react";
 
 interface ChatSidebarProps {
   messages: Message[];

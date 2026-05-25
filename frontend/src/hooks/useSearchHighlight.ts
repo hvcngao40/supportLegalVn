@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { buildApiUrl } from '@/lib/apiBaseUrl';
 
 export interface ArticleResult {
@@ -21,11 +21,13 @@ export interface SearchArticlesResponse {
 
 export function useSearchHighlight() {
   const [activeHighlightIndex, setActiveHighlightIndex] = useState(0);
-  const [highlightCount, setHighlightCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [articleData, setArticleData] = useState<ArticleResult | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
+  const highlightCount = useMemo(() => {
+    if (!articleData?.highlighted_content) return 0;
+    return (articleData.highlighted_content.match(/<b>/g) || []).length;
+  }, [articleData]);
 
   const nextHighlight = useCallback(() => {
     setActiveHighlightIndex((prev) => (prev < highlightCount - 1 ? prev + 1 : prev));
@@ -35,13 +37,12 @@ export function useSearchHighlight() {
     setActiveHighlightIndex((prev) => (prev > 0 ? prev - 1 : prev));
   }, []);
 
-  const fetchArticle = useCallback(async (query: string, searchPhrase?: string, article_uuid?: string) => {
+  const fetchArticle = useCallback(async (query: string, _searchPhrase?: string, article_uuid?: string) => {
     setLoading(true);
     setError(null);
-    setSearchQuery(searchPhrase || "");
     try {
       // Using query to search by so_ky_hieu and searchPhrase to highlight text
-      const requestBody: any = { query: query };
+      const requestBody: { query: string; article_uuid?: string } = { query: query };
       if (article_uuid) {
         requestBody.article_uuid = article_uuid;
       }
@@ -61,8 +62,8 @@ export function useSearchHighlight() {
       const data: SearchArticlesResponse = await response.json();
       if (data.results && data.results.length > 0) {
         // Find best match, default to first
-        let bestResult = data.results[0];
-        
+        const bestResult = data.results[0];
+
         // If we have a specific phrase to highlight, we could potentially re-highlight here
         // or just use the backend's highlighted_content
         
@@ -71,7 +72,7 @@ export function useSearchHighlight() {
       } else {
         setError("Không tìm thấy dữ liệu bài viết.");
         setArticleData(null);
-        setHighlightCount(0);
+        setActiveHighlightIndex(0);
       }
     } catch (err) {
       console.error(err);
@@ -81,17 +82,6 @@ export function useSearchHighlight() {
     }
   }, []);
 
-  // Compute highlight count when articleData or searchQuery changes
-  useEffect(() => {
-    if (articleData) {
-      if (articleData.highlighted_content) {
-        const count = (articleData.highlighted_content.match(/<b>/g) || []).length;
-        setHighlightCount(count);
-      } else {
-        setHighlightCount(0);
-      }
-    }
-  }, [articleData, searchQuery]);
 
   return {
     activeHighlightIndex,
