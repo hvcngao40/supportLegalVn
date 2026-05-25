@@ -9,8 +9,8 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 
 ## Current Status
 - **Status**: Milestone v3.0 Execution
-- **Phase**: 18 (Tối ưu RAG & Qdrant - Hiệu năng) — COMPLETE
-- **Next Step**: Define next phases for Milestone v3.0 stability
+- **Phase**: 19 (Redis Cache Deployment) — PLANNED
+- **Next Step**: Plan Phase 19 for Redis caching implementation
 
 
 
@@ -21,10 +21,10 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 - [x] **v1.2 Quality Assurance** - Phase 6 (Retrieval Evaluation)
 
 ## Recent Activity
+- **2026-05-24**: Phase 19 PLANNED: Redis Cache Deployment. Context and plan created for Redis-based caching to replace Qdrant semantic cache, improving latency and throughput.
 - **2026-05-08**: Milestone Summary for v3.0 generated.
 - **2026-05-06**: Phase 9 COMPLETE: Production deployment & infrastructure hardening. Added production-safe frontend API URL handling, strict backend production validation, JSON logging baseline, deployment runbook, Nginx config, and backup/restore scripts.
 - **2026-05-05**: Phase 18 COMPLETE: Tối ưu RAG & Qdrant - Hiệu năng. Implemented gRPC, Semantic Cache with persistent client, and metadata pre-filtering.
-- **2026-05-05**: Phase 17 COMPLETE: API Gateway Layer (Bảo vệ API & Rate Limit) implemented with cachetools and custom Circuit Breaker.
 
 - **2026-05-05**: Phase 16 COMPLETE: Stream API Integration (Chuyển /ask sang /stream).
 - **2026-05-04**: Phase 15 COMPLETE: Cải thiện UI chuẩn ngành luật với Tag phân loại và Rerank.
@@ -68,6 +68,7 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 - Phase 16 added: Stream API Integration (Chuyển /ask sang /stream).
 - Phase 17 added: Lớp Bảo vệ API & Rate Limit (API Gateway Layer).
 - Phase 18 added: Tối ưu RAG & Qdrant - Hiệu năng (Semantic Cache, gRPC, Pre-filtering).
+- Phase 19 added: Redis Cache Deployment (Replace Qdrant semantic cache with Redis for improved latency and throughput).
 
 
 ## Pending Todos
@@ -75,4 +76,4 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 (No pending todos)
 
 ---
-*Last updated: 2026-05-06*
+*Last updated: 2026-05-24*

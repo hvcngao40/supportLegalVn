@@ -5,23 +5,6 @@ import pytest
 from app import app
 
 
-class FakeTextNode:
-    def __init__(self, node_id, metadata, content):
-        self.node_id = node_id
-        self.id_ = node_id
-        self.metadata = metadata
-        self._content = content
-
-    def get_content(self):
-        return self._content
-
-
-class FakeNodeWithScore:
-    def __init__(self, node, score=1.0):
-        self.node = node
-        self.score = score
-
-
 @pytest.fixture(autouse=True)
 def mock_pipeline():
     # Replace the app.state.pipeline with a mock that has retriever and fts_retriever
@@ -36,7 +19,16 @@ def mock_pipeline():
 
 
 def test_search_by_query_returns_results(mock_pipeline):
-    node = FakeNodeWithScore(FakeTextNode("uuid-1", {"article_uuid": "uuid-1", "article_title": "Điều 1", "so_ky_hieu": "123/2024/NĐ-CP"}, "Nội dung điều 1 về trộm cắp tài sản"), score=0.9)
+    node = {
+        "id": "uuid-1",
+        "text": "Nội dung điều 1 về trộm cắp tài sản",
+        "metadata": {
+            "article_uuid": "uuid-1",
+            "article_title": "Điều 1",
+            "so_ky_hieu": "123/2024/NĐ-CP",
+        },
+        "score": 0.9,
+    }
     mock_pipeline.retriever.fts_retriever.aretrieve_articles_by_so_ky_hieu.return_value = [node]
     mock_pipeline.retriever.fts_retriever.get_articles_by_uuids.return_value = [node]
 
@@ -56,7 +48,12 @@ def test_search_by_query_returns_results(mock_pipeline):
     assert result["doc_type"] == "Nghị định"
 
 def test_search_with_explicit_doc_type(mock_pipeline):
-    node = FakeNodeWithScore(FakeTextNode("uuid-3", {"article_uuid": "uuid-3", "so_ky_hieu": "123/Luật"}, "Nội dung"), score=0.8)
+    node = {
+        "id": "uuid-3",
+        "text": "Nội dung",
+        "metadata": {"article_uuid": "uuid-3", "so_ky_hieu": "123/Luật"},
+        "score": 0.8,
+    }
     mock_pipeline.retriever.fts_retriever.aretrieve_articles_by_so_ky_hieu.return_value = [node]
     mock_pipeline.retriever.fts_retriever.get_articles_by_uuids.return_value = [node]
 
@@ -69,7 +66,16 @@ def test_search_with_explicit_doc_type(mock_pipeline):
 
 
 def test_search_by_uuid_fetches_article(mock_pipeline):
-    node = FakeNodeWithScore(FakeTextNode("uuid-2", {"article_uuid": "uuid-2", "article_title": "Điều 2", "so_ky_hieu": "Văn bản B"}, "Nội dung điều 2"), score=1.0)
+    node = {
+        "id": "uuid-2",
+        "text": "Nội dung điều 2",
+        "metadata": {
+            "article_uuid": "uuid-2",
+            "article_title": "Điều 2",
+            "so_ky_hieu": "Văn bản B",
+        },
+        "score": 1.0,
+    }
     mock_pipeline.retriever.fts_retriever.get_articles_by_uuids.return_value = [node]
 
     client = TestClient(app)

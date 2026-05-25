@@ -10,7 +10,6 @@ from tabulate import tabulate
 # LlamaIndex Mocking
 from llama_index.core.embeddings import BaseEmbedding
 from llama_index.core import QueryBundle, Settings
-from llama_index.core.schema import NodeWithScore
 
 # Import other parts
 from core.rag_pipeline import LegalRAGPipeline, LegalHybridRetriever

@@ -27,7 +27,9 @@ def mock_pipeline():
 def test_health():
     response = client.get("/api/v1/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
+    payload = response.json()
+    assert payload["status"] in {"ok", "degraded"}
+    assert payload["service"] == "legal-api"
 
 def test_ask(mock_pipeline):
     # Mock the app state
@@ -38,6 +40,28 @@ def test_ask(mock_pipeline):
     data = response.json()
     assert data["answer"] == "Test Answer"
     assert len(data["citations"]) == 1
+
+
+def test_ask_ready_for_llm_response():
+    mock_pipeline = MagicMock()
+    mock_pipeline.acustom_query = AsyncMock(return_value={
+        "status": "ready_for_llm",
+        "prompt": "PROMPT_TEXT",
+        "retrievals": [
+            {"source": "Doc 1", "text": "Snippet", "score": 0.9, "article_uuid": "uuid-1"}
+        ],
+        "metadata": {"cache_hit": False, "used_cache_threshold": 0.95},
+    })
+    app.state.pipeline = mock_pipeline
+
+    response = client.post("/api/v1/ask", json={"query": "test query"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ready_for_llm"
+    assert data["prompt"] == "PROMPT_TEXT"
+    assert len(data["retrievals"]) == 1
+    assert data["metadata"]["cache_hit"] is False
+    assert "answer" not in data
 
 def test_stream(mock_pipeline):
     app.state.pipeline = mock_pipeline

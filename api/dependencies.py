@@ -1,6 +1,17 @@
 from fastapi import Request, Header, HTTPException, Depends
 from typing import Optional
 from core.security import rate_limiter
+from typing import Any
+
+
+async def get_redis_from_app(request: Request) -> Optional[Any]:
+    """Return the Redis manager instance attached to the app pipeline, if available."""
+    try:
+        pipeline = request.app.state.pipeline
+        redis_mgr = getattr(pipeline, "redis_manager", None)
+        return redis_mgr
+    except Exception:
+        return None
 
 async def get_client_ip(request: Request) -> str:
     """

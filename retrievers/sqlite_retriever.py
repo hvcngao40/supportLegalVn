@@ -1,13 +1,16 @@
 import aiosqlite
 import re
 import time
+import os
+import asyncio
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 from llama_index.core import QueryBundle
 from llama_index.core.retrievers import BaseRetriever
-from llama_index.core.schema import NodeWithScore, TextNode
 
 from core.constants import SQLITE_PATH
+from core.retrieval_types import RetrievalNode, make_retrieval_node
 from db.sqlite import normalize_so_ky_hieu_key
 
 
@@ -29,9 +32,43 @@ class SQLiteFTS5Retriever(BaseRetriever):
         self._article_fts_table: Optional[str] = None
         self._chunk_fts_table: Optional[str] = None
         self._so_ky_hieu_index_cache: Optional[dict[str, List[str]]] = None
+        self._pool_size = max(1, int(os.getenv("SQLITE_POOL_SIZE", "4")))
+        self._pool: List[aiosqlite.Connection] = []
+        self._pool_lock = asyncio.Lock()
+        self._pool_semaphore = asyncio.Semaphore(self._pool_size)
         super().__init__()
 
-    def _retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+    @asynccontextmanager
+    async def _get_db(self) -> aiosqlite.Connection:
+        """Borrow a pooled SQLite connection to limit FD usage under load."""
+        await self._pool_semaphore.acquire()
+        conn: Optional[aiosqlite.Connection] = None
+        try:
+            async with self._pool_lock:
+                if self._pool:
+                    conn = self._pool.pop()
+            if conn is None:
+                conn = await aiosqlite.connect(self.db_path)
+                conn.row_factory = aiosqlite.Row
+            yield conn
+        finally:
+            if conn is not None:
+                async with self._pool_lock:
+                    self._pool.append(conn)
+            self._pool_semaphore.release()
+
+    async def close(self) -> None:
+        """Close pooled connections (best-effort)."""
+        async with self._pool_lock:
+            conns = list(self._pool)
+            self._pool.clear()
+        for conn in conns:
+            try:
+                await conn.close()
+            except Exception:
+                pass
+
+    def _retrieve(self, query_bundle: QueryBundle) -> List[RetrievalNode]:
         """Synchronous retrieve (deprecated)."""
         return []
 
@@ -89,14 +126,14 @@ class SQLiteFTS5Retriever(BaseRetriever):
         self._so_ky_hieu_index_cache = index_map
         return index_map
 
-    async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+    async def _aretrieve(self, query_bundle: QueryBundle) -> List[RetrievalNode]:
         """Legacy chunk-level search using FTS5."""
         query_str = query_bundle.query_str
         safe_query = self._sanitize_query(query_str)
 
-        nodes: List[NodeWithScore] = []
+        nodes: List[RetrievalNode] = []
         try:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._get_db() as db:
                 db.row_factory = aiosqlite.Row
                 chunk_table = await self._resolve_fts_table(
                     db,
@@ -134,18 +171,20 @@ class SQLiteFTS5Retriever(BaseRetriever):
                             "chunk_path": row["chunk_path"],
                             "type": "CHUNK",
                         }
-                        node = TextNode(
-                            text=row["content"],
-                            metadata=metadata,
-                            id_=row["chunk_id"],
+                        nodes.append(
+                            make_retrieval_node(
+                                node_id=row["chunk_id"],
+                                text=row["content"],
+                                metadata=metadata,
+                                score=float(row["score"]),
+                            )
                         )
-                        nodes.append(NodeWithScore(node=node, score=float(row["score"])))
         except Exception as e:
             print(f"[Error] SQLite FTS5 retrieval failed: {e}")
 
         return nodes
 
-    async def aretrieve(self, query_str: str) -> List[NodeWithScore]:
+    async def aretrieve(self, query_str: str) -> List[RetrievalNode]:
         """Convenience wrapper for legacy FTS5 chunk search."""
         return await self._aretrieve(QueryBundle(query_str))
 
@@ -154,7 +193,7 @@ class SQLiteFTS5Retriever(BaseRetriever):
         query_str: str,
         top_k: Optional[int] = None,
         doc_type: Optional[str] = None,
-    ) -> List[NodeWithScore]:
+    ) -> List[RetrievalNode]:
         """
         Primary keyword path for article candidates.
 
@@ -164,10 +203,10 @@ class SQLiteFTS5Retriever(BaseRetriever):
         safe_query = self._sanitize_query(query_str)
         limit = top_k or self.top_k
 
-        nodes: List[NodeWithScore] = []
+        nodes: List[RetrievalNode] = []
         start_time = time.time()
         try:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._get_db() as db:
                 db.row_factory = aiosqlite.Row
                 article_table = await self._resolve_fts_table(
                     db,
@@ -227,13 +266,15 @@ class SQLiteFTS5Retriever(BaseRetriever):
                             "article_path": row["article_path"],
                             "type": "ARTICLE",
                         }
-                        node = TextNode(
-                            # Candidate stage is metadata-only; full content is hydrated later.
-                            text=row["article_title"] or row["so_ky_hieu"] or "",
-                            metadata=metadata,
-                            id_=row["article_uuid"],
+                        nodes.append(
+                            make_retrieval_node(
+                                node_id=row["article_uuid"],
+                                # Candidate stage is metadata-only; full content is hydrated later.
+                                text=row["article_title"] or row["so_ky_hieu"] or "",
+                                metadata=metadata,
+                                score=float(row["score"]),
+                            )
                         )
-                        nodes.append(NodeWithScore(node=node, score=float(row["score"])))
         except Exception as e:
             print(f"[Error] SQLite article title BM25 retrieval failed: {e}")
 
@@ -248,7 +289,7 @@ class SQLiteFTS5Retriever(BaseRetriever):
         query_str: str,
         top_k: Optional[int] = None,
         doc_type: Optional[str] = None,
-    ) -> List[NodeWithScore]:
+    ) -> List[RetrievalNode]:
         """
         Search canonical articles by document identifier (`so_ky_hieu`) only.
 
@@ -259,10 +300,10 @@ class SQLiteFTS5Retriever(BaseRetriever):
         normalized_query = normalize_so_ky_hieu_key(query_str)
         limit = top_k or self.top_k
 
-        nodes: List[NodeWithScore] = []
+        nodes: List[RetrievalNode] = []
         start_time = time.time()
         try:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._get_db() as db:
                 db.row_factory = aiosqlite.Row
 
                 index_map = await self._load_so_ky_hieu_index_cache(db)
@@ -352,12 +393,14 @@ class SQLiteFTS5Retriever(BaseRetriever):
                             "article_path": row["article_path"],
                             "type": "ARTICLE",
                         }
-                        node = TextNode(
-                            text=row["article_title"] or row["so_ky_hieu"] or "",
-                            metadata=metadata,
-                            id_=row["article_uuid"],
+                        nodes.append(
+                            make_retrieval_node(
+                                node_id=row["article_uuid"],
+                                text=row["article_title"] or row["so_ky_hieu"] or "",
+                                metadata=metadata,
+                                score=float(row["score"]),
+                            )
                         )
-                        nodes.append(NodeWithScore(node=node, score=float(row["score"])))
         except Exception as e:
             print(f"[Error] SQLite article identifier retrieval failed: {e}")
 
@@ -372,7 +415,7 @@ class SQLiteFTS5Retriever(BaseRetriever):
         query_str: str,
         top_k: Optional[int] = None,
         doc_type: Optional[str] = None,
-    ) -> List[NodeWithScore]:
+    ) -> List[RetrievalNode]:
         """Backward-compatible alias for so_ky_hieu search."""
         return await self.aretrieve_articles_by_so_ky_hieu(
             query_str,
@@ -384,7 +427,7 @@ class SQLiteFTS5Retriever(BaseRetriever):
         self,
         article_uuids: List[str],
         limit: Optional[int] = 200,
-    ) -> List[NodeWithScore]:
+    ) -> List[RetrievalNode]:
         """
         Fetch chunks that belong to the given list of article UUIDs.
 
@@ -419,9 +462,9 @@ class SQLiteFTS5Retriever(BaseRetriever):
         if limit is not None:
             sql += " LIMIT ?"
 
-        nodes: List[NodeWithScore] = []
+        nodes: List[RetrievalNode] = []
         try:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._get_db() as db:
                 db.row_factory = aiosqlite.Row
                 params = tuple(unique_article_uuids)
                 if limit is not None:
@@ -438,18 +481,20 @@ class SQLiteFTS5Retriever(BaseRetriever):
                             "chunk_path": row["chunk_path"],
                             "type": "CHUNK",
                         }
-                        node = TextNode(
-                            text=row["content"],
-                            metadata=metadata,
-                            id_=row["chunk_id"],
+                        nodes.append(
+                            make_retrieval_node(
+                                node_id=row["chunk_id"],
+                                text=row["content"],
+                                metadata=metadata,
+                                score=1.0,
+                            )
                         )
-                        nodes.append(NodeWithScore(node=node, score=1.0))
         except Exception as e:
             print(f"[Error] SQLite chunk fetch by article_uuid failed: {e}")
 
         return nodes
 
-    async def get_articles_by_uuids(self, article_uuids: List[str]) -> List[NodeWithScore]:
+    async def get_articles_by_uuids(self, article_uuids: List[str]) -> List[RetrievalNode]:
         """
         Fetch canonical article rows from SQLite.
         """
@@ -480,9 +525,9 @@ class SQLiteFTS5Retriever(BaseRetriever):
             WHERE article_uuid IN ({placeholders})
         """
 
-        nodes: List[NodeWithScore] = []
+        nodes: List[RetrievalNode] = []
         try:
-            async with aiosqlite.connect(self.db_path) as db:
+            async with self._get_db() as db:
                 db.row_factory = aiosqlite.Row
                 async with db.execute(sql, tuple(unique_article_uuids)) as cursor:
                     rows = await cursor.fetchall()
@@ -496,12 +541,14 @@ class SQLiteFTS5Retriever(BaseRetriever):
                             "article_path": row["article_path"],
                             "type": "ARTICLE",
                         }
-                        node = TextNode(
-                            text=row["full_content"] or "",
-                            metadata=metadata,
-                            id_=row["article_uuid"],
+                        nodes.append(
+                            make_retrieval_node(
+                                node_id=row["article_uuid"],
+                                text=row["full_content"] or "",
+                                metadata=metadata,
+                                score=1.0,
+                            )
                         )
-                        nodes.append(NodeWithScore(node=node, score=1.0))
         except Exception as e:
             print(f"[Error] SQLite article fetch failed: {e}")
 

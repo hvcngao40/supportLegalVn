@@ -6,6 +6,7 @@ python-dotenv
 tabulate
 tenacity
 cachetools==5.3.3
+numpy
 
 # --- LLM Ecosystem & Gemini SDK ---
 llama-index
@@ -42,3 +43,4 @@ aiosqlite
 # --- Testing ---
 pytest
 pytest-asyncio
+redis>=4.5.1

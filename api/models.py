@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 class Citation(BaseModel):
     source: str = Field(..., description="Document number or title of the legal source")
@@ -12,12 +12,16 @@ class ChatMessage(BaseModel):
     content: str
 
 class AskRequest(BaseModel):
-    query: str = Field(..., example="Thủ tục thành lập công ty TNHH")
+    query: str = Field(..., examples=["Thủ tục thành lập công ty TNHH"])
     chat_history: Optional[List[ChatMessage]] = Field(default_factory=list, description="Recent conversation history")
 
 class AskResponse(BaseModel):
-    answer: str = Field(..., description="IRAC formatted response from the AI")
+    answer: Optional[str] = Field(None, description="IRAC formatted response from the AI")
     citations: List[Citation] = Field(default_factory=list)
+    retrievals: List[Citation] = Field(default_factory=list, description="Retrievals returned when LLM generation is disabled")
+    status: Optional[str] = Field(None, description="Pipeline execution status")
+    prompt: Optional[str] = Field(None, description="Pre-built prompt returned when LLM generation is disabled")
+    metadata: Dict[str, Any] = Field(default_factory=dict)
     detected_domains: List[str] = Field(default_factory=list)
     confidence_score: float = 0.0
 

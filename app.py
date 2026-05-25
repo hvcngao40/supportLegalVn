@@ -7,13 +7,14 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from unittest.mock import AsyncMock, MagicMock
-import traceback
+# import traceback
 
 import llama_index.core
 # from torch.cuda import device
 
 from api.models import HealthResponse
 from core.health import build_health_status
+from warnup import warm_up_qdrant
 
 llama_index.core.global_handler = None
 
@@ -117,6 +118,7 @@ def _validate_production_environment():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize singletons
+
     print("Initializing RAG Pipeline singletons...")
     try:
         if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("TESTING", "").lower() in {"1", "true", "yes"}:
@@ -135,29 +137,32 @@ async def lifespan(app: FastAPI):
         from retrievers.qdrant_retriever import QdrantRetriever
         from core.rag_pipeline import LegalRAGPipeline, LegalHybridRetriever
         
-        classifier_provider = os.getenv("CLASSIFIER_PROVIDER", "groq")
-        classifier_fallback_provider = os.getenv("CLASSIFIER_FALLBACK_PROVIDER", "gemini")
-        classifier_model = os.getenv("CLASSIFIER_MODEL", "llama-3.1-8b-instant")
-
-        classifier = LegalQueryClassifier(
-            provider=classifier_provider,
-            fallback_provider=classifier_fallback_provider,
-            model_name=classifier_model,
-        )
+        # classifier_provider = os.getenv("CLASSIFIER_PROVIDER", "groq")
+        # classifier_fallback_provider = os.getenv("CLASSIFIER_FALLBACK_PROVIDER", "gemini")
+        # classifier_model = os.getenv("CLASSIFIER_MODEL", "llama-3.1-8b-instant")
+        #
+        # classifier = LegalQueryClassifier(
+        #     provider=classifier_provider,
+        #     fallback_provider=classifier_fallback_provider,
+        #     model_name=classifier_model,
+        # )
         v_retriever = QdrantRetriever()
-        # Pre-create Qdrant client only in production to avoid heavy imports during local test startup.
-        if _environment_name() == "production":
-            try:
-                import asyncio as _asyncio
+        # Pre-create Qdrant client during startup to avoid latency on first request and to catch configuration issues early.
+        try:
+            import asyncio as _asyncio
 
-                await _asyncio.to_thread(v_retriever._get_client)
-                print("[Startup] Qdrant client initialized during startup")
-            except Exception as e:
-                print(f"[Warning] Pre-init Qdrant client failed during startup: {e}")
+            await _asyncio.to_thread(v_retriever._get_client)
+            print("[Startup] Qdrant client initialized during startup")
+        except Exception as e:
+            print(f"[Warning] Pre-init Qdrant client failed during startup: {e}")
+        # Chạy warm-up ở đây
+        client = v_retriever._get_client()
+        await warm_up_qdrant(client, "legal_articles")
+
         f_retriever = SQLiteFTS5Retriever()
         
         hybrid_retriever = LegalHybridRetriever(
-            classifier=classifier,
+            classifier=None,
             vector_retriever=v_retriever,
             fts_retriever=f_retriever
         )
@@ -165,15 +170,31 @@ async def lifespan(app: FastAPI):
         generation_provider = os.getenv("GENERATION_PROVIDER", "groq")
         generation_model = os.getenv("GENERATION_MODEL", "llama-3.1-8b-instant")
         
+        # Initialize RedisManager (optional). If Redis is unavailable, pipeline will fall back to Qdrant-only.
+        try:
+            from db.redis import RedisManager
+            redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+            redis_manager = RedisManager(redis_url)
+            try:
+                await redis_manager.init()
+                print("[Startup] Redis manager initialized")
+            except Exception as e:
+                print(f"[Startup] Redis init failed: {e}")
+                redis_manager = None
+        except Exception as e:
+            print(f"[Startup] RedisManager import/init skipped: {e}")
+            redis_manager = None
+
         app.state.pipeline = LegalRAGPipeline(
             retriever=hybrid_retriever, 
             provider=generation_provider,
-            model_name=generation_model
+            model_name=generation_model,
+            redis_manager=redis_manager,
         )
         print("RAG Pipeline ready.")
     except Exception as e:
         print(f"WARNING: RAG Pipeline failed to initialize: {e}")
-        traceback.print_exc()
+        # traceback.print_exc()
         print("Backend will start in MOCK mode for API verification.")
         # Create a mock pipeline for verification
         mock = MagicMock()
@@ -204,10 +225,10 @@ async def rate_limit_handler(request: Request, exc: exceptions.ResourceExhausted
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     print(f"CRITICAL ERROR: {str(exc)}")
-    traceback.print_exc()
+    # traceback.print_exc()
     return JSONResponse(
         status_code=500,
-        content={"detail": str(exc), "traceback": traceback.format_exc()}
+        content={"detail": str(exc)} #, "traceback": traceback.format_exc()}
     )
 
 # Include Routers
@@ -215,10 +236,11 @@ from api.v1.endpoints import router as api_v1
 app.include_router(api_v1, prefix="/api/v1", tags=["v1"])
 
 # CORS Configuration
-allowed_origins = _parse_allowed_origins()
+# allowed_origins = _parse_allowed_origins()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    # allow_origins=allowed_origins,
+    allow_origins=["*"],  # For development; restrict in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -230,4 +252,4 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="0.0.0.0", port=8000)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, workers=1)

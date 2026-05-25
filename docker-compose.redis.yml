@@ -1,0 +1,14 @@
+services:
+  redis:
+    image: redis/redis-stack:latest
+    container_name: supportlegalv2_redis
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_ARGS=--save 900 1
+    volumes:
+      - redis_data:/data
+
+volumes:
+  redis_data:
+
