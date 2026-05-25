@@ -9,8 +9,8 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 
 ## Current Status
 - **Status**: Milestone v3.0 Execution
-- **Phase**: 19 (Redis Cache Deployment) — PLANNED
-- **Next Step**: Plan Phase 19 for Redis caching implementation
+- **Phase**: 20 (Frontend AI Chat Integration) — PLANNED
+- **Next Step**: Discuss and plan Phase 20 for external AI chat reference integration
 
 
 
@@ -21,6 +21,7 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 - [x] **v1.2 Quality Assurance** - Phase 6 (Retrieval Evaluation)
 
 ## Recent Activity
+- **2026-05-25**: Phase 20 PLANNED: Frontend AI Chat Integration. Context created for adding Gemini and ChatGPT reference buttons to frontend with pre-loaded legal context from search results.
 - **2026-05-24**: Phase 19 PLANNED: Redis Cache Deployment. Context and plan created for Redis-based caching to replace Qdrant semantic cache, improving latency and throughput.
 - **2026-05-08**: Milestone Summary for v3.0 generated.
 - **2026-05-06**: Phase 9 COMPLETE: Production deployment & infrastructure hardening. Added production-safe frontend API URL handling, strict backend production validation, JSON logging baseline, deployment runbook, Nginx config, and backup/restore scripts.
@@ -69,6 +70,7 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 - Phase 17 added: Lớp Bảo vệ API & Rate Limit (API Gateway Layer).
 - Phase 18 added: Tối ưu RAG & Qdrant - Hiệu năng (Semantic Cache, gRPC, Pre-filtering).
 - Phase 19 added: Redis Cache Deployment (Replace Qdrant semantic cache with Redis for improved latency and throughput).
+- Phase 20 added: Frontend AI Chat Integration (Add Gemini & ChatGPT reference buttons with pre-loaded legal context).
 
 
 ## Pending Todos
@@ -76,4 +78,4 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 (No pending todos)
 
 ---
-*Last updated: 2026-05-24*
+*Last updated: 2026-05-25*
