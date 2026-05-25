@@ -55,6 +55,9 @@ export const LegalRAGChat: React.FC = () => {
   const [copiedNotice, setCopiedNotice] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [showPromptModal, setShowPromptModal] = useState(false);
+  const [promptDraft, setPromptDraft] = useState('');
+  const [clipboardSupported, setClipboardSupported] = useState(true);
 
   /**
    * Phase 1: Send query to backend RAG pipeline
@@ -121,28 +124,30 @@ export const LegalRAGChat: React.FC = () => {
     } catch (e) {
       // ignore localStorage errors
     }
+    try {
+      // feature-detect clipboard API in client
+      if (typeof window !== 'undefined' && !navigator?.clipboard) setClipboardSupported(false);
+    } catch (e) {
+      setClipboardSupported(false);
+    }
   }, []);
-
-  /**
-   * Phase 2: Send prompt to external LLM (e.g., OpenAI, Gemini)
-   *
-   * This is the frontend's responsibility when ENABLE_LLM_GENERATION=false
-   */
-  const generateWithLLM = async (prompt: string, retrievals: Retrieval[]): Promise<string> => {
-    // Example: Call OpenAI API
-    // const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-
-    // For demo, we'll show both OpenAI and Gemini examples
-
-    // EXAMPLE 1: Using OpenAI
-    // const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Bearer ${apiKey}`,
+              <button
+                type="button"
+                onClick={() => {
+                  // Open editable prompt modal so user can review before copying
+                  const lastUser = (() => {
+                    for (let i = chatHistory.length - 1; i >= 0; i--) {
     //     'Content-Type': 'application/json',
     //   },
     //   body: JSON.stringify({
     //     model: 'gpt-4',
+                  setPromptDraft(buildExternalPrompt(lastUser || userQuery, retrievals));
+                  setShowPromptModal(true);
+                }}
+                className="bg-gray-400 hover:bg-gray-500 text-white rounded px-3 py-2 text-sm"
+              >
+                Chỉ sao chép prompt
+              </button>
     //     messages: [
     //       {
     //         role: 'system',
@@ -376,6 +381,86 @@ export const LegalRAGChat: React.FC = () => {
       )}
 
       {/* Input Area */}
+      {/* Prompt Edit Modal */}
+      {showPromptModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black opacity-40" onClick={() => setShowPromptModal(false)} />
+          <div className="relative bg-white rounded-lg max-w-2xl w-[96%] p-4 shadow-lg z-10">
+            <h3 className="text-lg font-semibold mb-2">Xem & Sửa Prompt trước khi sao chép</h3>
+            <p className="text-sm text-gray-600 mb-2">Bạn có thể chỉnh sửa prompt trước khi sao chép vào clipboard và mở ChatGPT/Gemini.</p>
+            <textarea
+              value={promptDraft}
+              onChange={(e) => setPromptDraft(e.target.value)}
+              className="w-full h-48 border rounded p-2 text-sm font-mono bg-gray-50"
+            />
+            <div className="mt-3 flex items-center justify-between">
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    try {
+                      if (!clipboardSupported) throw new Error('clipboard not supported');
+                      await navigator.clipboard.writeText(promptDraft);
+                      setCopiedNotice('Đã sao chép prompt vào clipboard.');
+                      setShowPromptModal(false);
+                      setTimeout(() => setCopiedNotice(null), 4000);
+                    } catch (err) {
+                      setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công từ ô dưới.');
+                      setClipboardSupported(false);
+                    }
+                  }}
+                  className="bg-gray-400 hover:bg-gray-500 text-white rounded px-3 py-1 text-sm"
+                >
+                  Chỉ sao chép
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      if (!clipboardSupported) throw new Error('clipboard not supported');
+                      await navigator.clipboard.writeText(promptDraft);
+                      window.open('https://chat.openai.com/', '_blank', 'noopener');
+                      setCopiedNotice('Đã sao chép prompt và mở ChatGPT.');
+                      setShowPromptModal(false);
+                      setTimeout(() => setCopiedNotice(null), 5000);
+                    } catch (err) {
+                      setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công và mở ChatGPT.');
+                      setClipboardSupported(false);
+                    }
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded px-3 py-1 text-sm"
+                >
+                  Sao chép & Mở ChatGPT
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      if (!clipboardSupported) throw new Error('clipboard not supported');
+                      await navigator.clipboard.writeText(promptDraft);
+                      window.open('https://gemini.google.com/', '_blank', 'noopener');
+                      setCopiedNotice('Đã sao chép prompt và mở Gemini.');
+                      setShowPromptModal(false);
+                      setTimeout(() => setCopiedNotice(null), 5000);
+                    } catch (err) {
+                      setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công và mở Gemini.');
+                      setClipboardSupported(false);
+                    }
+                  }}
+                  className="bg-gray-700 hover:bg-gray-800 text-white rounded px-3 py-1 text-sm"
+                >
+                  Sao chép & Mở Gemini
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowPromptModal(false)} className="px-3 py-1 rounded border">Đóng</button>
+              </div>
+            </div>
+            {!clipboardSupported && (
+              <div className="mt-3 text-sm text-gray-700">
+                <p>Clipboard API không khả dụng. Vui lòng chọn toàn bộ văn bản trong ô trên (Ctrl+A / Cmd+A), sao chép thủ công và dán vào ChatGPT/Gemini.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {/* Modal: Quick UX guide */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
