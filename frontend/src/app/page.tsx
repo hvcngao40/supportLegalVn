@@ -143,7 +143,8 @@ export default function Home() {
       <div className="w-1/2 h-full bg-zinc-50 flex flex-col">
         <ChatSidebar 
           messages={messages} 
-          onSendMessage={handleSendMessage} 
+          citations={citations}
+          onSendMessage={handleSendMessage}
           isLoading={isLoading} 
         />
       </div>

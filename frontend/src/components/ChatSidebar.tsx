@@ -1,15 +1,22 @@
 import { useState, useRef, useEffect } from "react";
-import { Message } from "@/app/page";
+import { Citation, Message } from "@/app/page";
 import { Send, Bot, User, AlertTriangle } from "lucide-react";
 
 interface ChatSidebarProps {
   messages: Message[];
+  citations: Citation[];
   onSendMessage: (msg: string) => void;
   isLoading: boolean;
 }
 
-export default function ChatSidebar({ messages, onSendMessage, isLoading }: ChatSidebarProps) {
+export default function ChatSidebar({ messages, citations, onSendMessage, isLoading }: ChatSidebarProps) {
   const [input, setInput] = useState("");
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [promptText, setPromptText] = useState("");
+  const [clipboardSupported] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return !!navigator?.clipboard;
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -25,6 +32,24 @@ export default function ChatSidebar({ messages, onSendMessage, isLoading }: Chat
     if (!input.trim() || isLoading) return;
     onSendMessage(input);
     setInput("");
+  };
+
+  const getLastUserQuery = () => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") return messages[i].content;
+    }
+    return "";
+  };
+
+  const buildPrompt = () => {
+    const query = getLastUserQuery();
+    const snippets = citations.slice(0, 5).map((c, i) => {
+      const source = c.source || c.metadata?.source || c.metadata?.file_name || "Tài liệu";
+      return `Nguồn ${i + 1}: ${source}\n"${c.text.replace(/\n/g, " ")}"`;
+    }).join("\n\n");
+
+    const system = "Bạn là một trợ lý pháp lý. Hãy trả lời ngắn gọn, chính xác, và chỉ dựa trên các trích dẫn pháp luật được cung cấp. Nếu cần, trích dẫn nguồn (số hiệu văn bản hoặc tiêu đề).";
+    return `${system}\n\nYêu cầu: ${query}\n\nTài liệu tham khảo:\n${snippets}\n\nTrả lời (tiếng Việt):`;
   };
 
   return (
@@ -117,6 +142,48 @@ export default function ChatSidebar({ messages, onSendMessage, isLoading }: Chat
       </div>
 
       <div className="p-4 bg-white border-t border-zinc-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+        <div className="mb-3">
+          <button
+            type="button"
+            onClick={() => {
+              const nextPrompt = buildPrompt();
+              setPromptText(nextPrompt);
+              setShowPrompt((prev) => !prev);
+            }}
+            className="text-xs px-3 py-1.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+          >
+            {showPrompt ? "Ẩn prompt" : "Xem prompt"}
+          </button>
+        </div>
+        {showPrompt && (
+          <div className="mb-4 border rounded bg-zinc-50 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-semibold text-zinc-600">Prompt hiện tại</div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    if (!clipboardSupported) throw new Error("clipboard not supported");
+                    await navigator.clipboard.writeText(promptText);
+                  } catch {
+                    // best effort copy only
+                  }
+                }}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Sao chép nhanh
+              </button>
+            </div>
+            <textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              className="w-full h-32 border rounded p-2 text-xs font-mono bg-white"
+            />
+            {!clipboardSupported && (
+              <p className="text-xs text-zinc-500 mt-2">Clipboard API không khả dụng. Vui lòng chọn toàn bộ và sao chép thủ công.</p>
+            )}
+          </div>
+        )}
         <form onSubmit={handleSubmit} className="relative flex items-center">
           <input
             type="text"
