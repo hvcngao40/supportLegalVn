@@ -64,6 +64,8 @@ export const LegalRAGChat: React.FC = () => {
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const [showPromptModal, setShowPromptModal] = useState(false);
   const [promptDraft, setPromptDraft] = useState('');
+  const [showPromptInline, setShowPromptInline] = useState(false);
+  const [promptInline, setPromptInline] = useState('');
   const [clipboardSupported, setClipboardSupported] = useState(() => {
     if (typeof window === 'undefined') return false;
     return !!navigator?.clipboard;
@@ -372,7 +374,52 @@ export const LegalRAGChat: React.FC = () => {
               >
                 Chỉ sao chép prompt
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextPrompt = buildExternalPrompt(getLastUserQuery(), retrievals);
+                  setPromptInline(nextPrompt);
+                  setShowPromptInline((prev) => !prev);
+                }}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 rounded px-3 py-2 text-sm"
+              >
+                {showPromptInline ? 'Ẩn prompt' : 'Xem prompt'}
+              </button>
             </div>
+            {showPromptInline && (
+              <div className="mt-3 bg-white border rounded p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-gray-600">Prompt hiện tại</div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        if (!clipboardSupported) throw new Error('clipboard not supported');
+                        await navigator.clipboard.writeText(promptInline);
+                        setCopiedNotice('Đã sao chép prompt vào clipboard.');
+                        setTimeout(() => setCopiedNotice(null), 3000);
+                      } catch {
+                        setCopiedNotice('Không thể sao chép tự động. Vui lòng sao chép thủ công.');
+                        setTimeout(() => setCopiedNotice(null), 3000);
+                      }
+                    }}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Sao chép nhanh
+                  </button>
+                </div>
+                <textarea
+                  value={promptInline}
+                  onChange={(e) => setPromptInline(e.target.value)}
+                  className="w-full h-40 border rounded p-2 text-xs font-mono bg-gray-50"
+                />
+                {!clipboardSupported && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Clipboard API không khả dụng. Vui lòng chọn toàn bộ và sao chép thủ công.
+                  </p>
+                )}
+              </div>
+            )}
             {copiedNotice && (
               <div className="mt-2 text-sm text-green-700">{copiedNotice}</div>
             )}
