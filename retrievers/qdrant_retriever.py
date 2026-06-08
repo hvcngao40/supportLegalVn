@@ -34,7 +34,7 @@ class QdrantRetriever:
         top_k: int = 1,
         embed_model_name: str = None,
     ):
-        self._embed_mode = "random" #os.getenv("EMBEDDING_MODE", "model").strip().lower()
+        self._embed_mode = os.getenv("EMBEDDING_MODE", "model").strip().lower() # "model" or "random"
         self._random_embed_dim = int(os.getenv("EMBEDDING_DIM", "768"))
         self._warned_random_mode = False
 
