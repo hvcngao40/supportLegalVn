@@ -32,7 +32,7 @@ data/
 qdrant_data/
 backups/
 outputs/
-sqlite_data/legal_data.db
+sqlite_data/
 # Bỏ qua tất cả file báo cáo phase trong thư mục planning
 .planning/reports/phase*
 
