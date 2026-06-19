@@ -1,3 +1,17 @@
+---
+gsd_state_version: 1.0
+milestone: v2.0
+milestone_name: Frontend & Chat
+status: unknown
+last_updated: "2026-06-19T06:33:18.300Z"
+progress:
+  total_phases: 24
+  completed_phases: 13
+  total_plans: 29
+  completed_plans: 19
+  percent: 54
+---
+
 # Project State: supportLegal
 
 ## Project Reference
@@ -8,11 +22,10 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 **Current focus**: Milestone 06 Audit & Cleanup
 
 ## Current Status
+
 - **Status**: Milestone v3.0 Execution
-- **Phase**: 20 (Frontend AI Chat Integration) — PLANNED
-- **Next Step**: Discuss and plan Phase 20 for external AI chat reference integration
-
-
+- **Phase**: 21 (Tích hợp LangSmith qua @traceable để theo dõi hệ thống, đo lường chi phí token và tốc độ) — CONTEXT GATHERED
+- **Next Step**: Plan Phase 21 for LangSmith integration
 
 ## Milestones
 
@@ -21,6 +34,7 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 - [x] **v1.2 Quality Assurance** - Phase 6 (Retrieval Evaluation)
 
 ## Recent Activity
+
 - **2026-05-25**: Phase 20 PLANNED: Frontend AI Chat Integration. Context created for adding Gemini and ChatGPT reference buttons to frontend with pre-loaded legal context from search results.
 - **2026-05-24**: Phase 19 PLANNED: Redis Cache Deployment. Context and plan created for Redis-based caching to replace Qdrant semantic cache, improving latency and throughput.
 - **2026-05-08**: Milestone Summary for v3.0 generated.
@@ -50,6 +64,7 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 ## Accumulated Context
 
 ### Roadmap Evolution
+
 - Phase 5 added: Hierarchical Structural Chunking (Legal-specific parsing).
 - Phase 6 added: Retrieval Evaluation (Benchmarking & Ragas).
 - Phase 6.1 inserted after Phase 6: Qwen-14B-Chat classifier provider with DashScope primary and Ollama backup (URGENT).
@@ -71,11 +86,11 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 - Phase 18 added: Tối ưu RAG & Qdrant - Hiệu năng (Semantic Cache, gRPC, Pre-filtering).
 - Phase 19 added: Redis Cache Deployment (Replace Qdrant semantic cache with Redis for improved latency and throughput).
 - Phase 20 added: Frontend AI Chat Integration (Add Gemini & ChatGPT reference buttons with pre-loaded legal context).
-
+- Phase 21 added: Tích hợp LangSmith qua @traceable để theo dõi hệ thống, đo lường chi phí token và tốc độ.
 
 ## Pending Todos
 
 (No pending todos)
 
 ---
-*Last updated: 2026-05-25*
+*Last updated: 2026-06-19*
