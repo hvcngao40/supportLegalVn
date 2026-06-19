@@ -43,7 +43,7 @@
 - [x] Phase 18: Tối ưu RAG & Qdrant - Hiệu năng — completed 2026-05-05 [[Plan](file:///c:/Users/hvcng/PycharmProjects/supportLegalVn/.planning/phases/18-optimization-rag-qdrant-performance/18-PLAN.md)]
 - [x] Phase 19: Redis Cache Deployment — completed 2026-05-24 [[Context](file:///c:/Users/hvcng/PycharmProjects/supportLegalVn/.planning/phases/19-redis-cache-deployment/19-CONTEXT.md)] [[Plan](file:///c:/Users/hvcng/PycharmProjects/supportLegalVn/.planning/phases/19-redis-cache-deployment/19-PLAN.md)] [[Implementation](file:///c:/Users/hvcng/PycharmProjects/supportLegalVn/.planning/phases/19-redis-cache-deployment/19-IMPLEMENTATION.md)]
 - [ ] Phase 20: Frontend AI Chat Integration (Gemini & ChatGPT Reference) [[Context](file:///c:/Users/hvcng/PycharmProjects/supportLegalVn/.planning/phases/20-frontend-ai-chat-integration/20-CONTEXT.md)]
-
+- [ ] Phase 21: Tích hợp LangSmith qua @traceable để theo dõi hệ thống, đo lường chi phí token và tốc độ [[Context](file:///c:/Users/hvcng/PycharmProjects/supportLegalVn/.planning/phases/21-t-ch-h-p-langsmith-qua-traceable-theo-d-i-h-th-ng-o-l-ng-chi/21-CONTEXT.md)] [[Plan](file:///c:/Users/hvcng/PycharmProjects/supportLegalVn/.planning/phases/21-t-ch-h-p-langsmith-qua-traceable-theo-d-i-h-th-ng-o-l-ng-chi/21-PLAN.md)]
 
 ## Progress
 
@@ -73,8 +73,7 @@
 | 18. Tối ưu RAG & Qdrant | v3.0 | 10/10 | Complete | 2026-05-05 |
 | 19. Redis Cache Deployment | v3.0 | 5/5 | Complete | 2026-05-24 |
 | 20. Frontend AI Chat Integration | v3.0 | 0/0 | Planned | - |
-
+| 21. Tích hợp LangSmith | v3.0 | 1/1 | Planned | - |
 
 ---
-*Last updated: 2026-05-25 — Phase 20 added*
-
+*Last updated: 2026-06-19 — Phase 21 planned*
