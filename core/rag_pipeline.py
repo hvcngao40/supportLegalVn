@@ -14,7 +14,7 @@ from sentence_transformers import CrossEncoder
 # from sentence_transformers import CrossEncoder
 
 from core.classifier import LegalQueryClassifier
-from core.constants import SQLITE_PATH
+from core.constants import SQLITE_PATH, traceable, _set_run_metadata
 from retrievers.sqlite_retriever import SQLiteFTS5Retriever
 from retrievers.qdrant_retriever import QdrantRetriever
 from tools.gemini_client import GeminiClient
@@ -138,6 +138,7 @@ class LegalHybridRetriever(BaseRetriever):
             if article_uuid not in node_by_uuid:
                 node_by_uuid[article_uuid] = res
 
+    @traceable(name="LegalHybridRetriever.legacy_chunk_fallback", run_type="retriever")
     async def _legacy_chunk_fallback(self, query_bundle: QueryBundle, query_str: str) -> List[RetrievalNode]:
         legacy_chunk_nodes = await asyncio.gather(
             self.vector_retriever.aretrieve_with_filter(query_bundle),
@@ -191,6 +192,7 @@ class LegalHybridRetriever(BaseRetriever):
 
         return results
 
+    @traceable(name="LegalHybridRetriever.retrieve_article_candidates", run_type="retriever")
     async def _retrieve_article_candidates(
         self,
         query_bundle: QueryBundle,
@@ -285,6 +287,7 @@ class LegalHybridRetriever(BaseRetriever):
 
         return results
 
+    @traceable(name="LegalHybridRetriever.retrieve", run_type="retriever")
     async def _aretrieve_internal(
         self,
         query_bundle: QueryBundle,
@@ -350,6 +353,20 @@ class LegalRAGPipeline:
         # Redis manager (Redis Stack) will be provided by the application when available
         self.redis_manager = redis_manager
 
+        # Dynamically wrap classifier.classify with traceable decorator
+        if hasattr(self.retriever, "classifier") and self.retriever.classifier:
+            self.retriever.classifier.classify = traceable(
+                name="Classifier.classify",
+                run_type="llm"
+            )(self.retriever.classifier.classify)
+
+        # Dynamically wrap redis_manager.vector_search with traceable decorator if available
+        if self.redis_manager and hasattr(self.redis_manager, "vector_search"):
+            self.redis_manager.vector_search = traceable(
+                name="RedisCache.vector_search",
+                run_type="retriever"
+            )(self.redis_manager.vector_search)
+
 
         self.qa_prompt_template = (
             "Bạn là một chuyên gia pháp luật Việt Nam cao cấp. "
@@ -388,6 +405,7 @@ class LegalRAGPipeline:
         else:
             raise ValueError(f"Unsupported generation provider: {provider}")
 
+    @traceable(name="Rewrite Query", run_type="chain")
     async def arewrite_query(self, query: str, chat_history: List[Any]) -> str:
         if not chat_history:
             return query
@@ -418,6 +436,7 @@ class LegalRAGPipeline:
             history_str += f"{msg.role.capitalize()}: {msg.content}\n"
         return history_str + "\n"
 
+    @traceable(name="LegalRAGPipeline.acustom_query", run_type="chain")
     async def acustom_query(self, query_str: str, chat_history: Optional[List[Any]] = None) -> Dict[str, Any]:
         """Execute the full RAG pipeline."""
         start_time = time.time()
@@ -437,6 +456,7 @@ class LegalRAGPipeline:
 
         # If Redis manager available and we have an embedding, run Redis vector lookup in parallel with Qdrant
         nodes = []
+        cache_hit = False
         if query_vector and getattr(self, "redis_manager", None):
             try:
                 redis_task = asyncio.create_task(
@@ -470,14 +490,22 @@ class LegalRAGPipeline:
             if chosen:
                 # Use Redis results (convert if necessary to same node shape expected downstream)
                 nodes = chosen
+                cache_hit = True
             else:
                 nodes = qdrant_res
+                cache_hit = False
         else:
             # No redis or no embedding: use existing retriever paths
             if query_vector:
                 nodes = await self.retriever.aretrieve_with_embedding(search_query, query_vector)
             else:
                 nodes = await self.retriever.aretrieve(search_query)
+            cache_hit = False
+
+        # Set run metadata for cache hit/miss and cost
+        _set_run_metadata(cache_hit=cache_hit)
+        if cache_hit:
+            _set_run_metadata(token_cost_usd=0.0)
 
         print(f"[RAG Pipeline] Retrieved {len(nodes)} nodes in {time.time() - start_time:.2f}s")
 
@@ -553,6 +581,7 @@ class LegalRAGPipeline:
         }
 
 
+    @traceable(name="LegalRAGPipeline.astream_query", run_type="chain")
     async def astream_query(self, query_str: str, chat_history: Optional[List[Any]] = None) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream the RAG response with metadata."""
         search_query = query_str
@@ -567,6 +596,7 @@ class LegalRAGPipeline:
         ENABLE_LLM = os.getenv("ENABLE_LLM_GENERATION", "false").lower() == "true"
 
         nodes = []
+        cache_hit = False
         if query_vector and getattr(self, "redis_manager", None):
             try:
                 redis_task = asyncio.create_task(
@@ -593,13 +623,21 @@ class LegalRAGPipeline:
             if chosen:
                 print("[RAG Pipeline] Redis semantic cache HIT (Streaming)")
                 nodes = chosen
+                cache_hit = True
             else:
                 nodes = qdrant_res
+                cache_hit = False
         else:
             if query_vector:
                 nodes = await self.retriever.aretrieve_with_embedding(search_query, query_vector)
             else:
                 nodes = await self.retriever.aretrieve(search_query)
+            cache_hit = False
+
+        # Set run metadata for cache hit/miss and cost
+        _set_run_metadata(cache_hit=cache_hit)
+        if cache_hit:
+            _set_run_metadata(token_cost_usd=0.0)
 
         nodes.sort(key=lambda n: (_get_legal_priority(n), -float(n.get("score", 0.0))))
 

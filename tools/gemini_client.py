@@ -13,6 +13,8 @@ from tenacity import (
     before_sleep_log
 )
 
+from core.constants import traceable, _set_run_metadata
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,6 +44,7 @@ class GeminiClient:
         self.client = genai.Client(api_key=self.api_key)
         self.model_name = model_name
 
+    @traceable(name="GeminiClient.generate_content_async", run_type="llm")
     @retry(
         # Sử dụng hàm check lỗi custom do SDK mới gộp chung vào APIError
         retry=retry_if_exception(is_retryable_error),
@@ -50,17 +53,38 @@ class GeminiClient:
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True
     )
-    async def generate_content_async(self, prompt: str, **kwargs) -> Any:
+    async def generate_content_async(self, prompt: str, **kwargs: Any) -> Any:
         """
         Generates content with automatic retries on rate limits or server errors.
         """
         try:
             # SDK mới sử dụng client.aio.models cho các tác vụ bất đồng bộ
-            return await self.client.aio.models.generate_content(
+            response = await self.client.aio.models.generate_content(
                 model=self.model_name,
                 contents=prompt,
                 **kwargs
             )
+            try:
+                if response and getattr(response, "usage_metadata", None):
+                    prompt_tokens = response.usage_metadata.prompt_token_count or 0
+                    completion_tokens = response.usage_metadata.response_token_count or 0
+                    total_tokens = response.usage_metadata.total_token_count or 0
+
+                    from core.constants import calculate_token_cost
+                    cost = calculate_token_cost("gemini", self.model_name, prompt_tokens, completion_tokens)
+
+                    _set_run_metadata(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        token_cost_usd=cost,
+                        model=self.model_name,
+                        provider="gemini"
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to record token usage for Gemini: {e}")
+
+            return response
         except errors.APIError as e:
             if e.code == 429:
                 logger.warning(f"Quota exceeded for {self.model_name}. Retrying...")
@@ -69,7 +93,8 @@ class GeminiClient:
             logger.error(f"Unexpected Gemini error: {e}")
             raise e
 
-    async def astream_query(self, prompt: str, **kwargs) -> AsyncGenerator[Any, None]:
+    @traceable(name="GeminiClient.astream_query", run_type="llm")
+    async def astream_query(self, prompt: str, **kwargs: Any) -> AsyncGenerator[Any, None]:
         """
         Streams content with basic error handling.
         Note: Retrying streams is complex; for now, we just handle the exception.
@@ -81,8 +106,31 @@ class GeminiClient:
                 contents=prompt,
                 **kwargs
             )
+            last_usage = None
             async for chunk in response:
+                if getattr(chunk, "usage_metadata", None):
+                    last_usage = chunk.usage_metadata
                 yield chunk
+
+            if last_usage:
+                try:
+                    prompt_tokens = last_usage.prompt_token_count or 0
+                    completion_tokens = last_usage.response_token_count or 0
+                    total_tokens = last_usage.total_token_count or 0
+
+                    from core.constants import calculate_token_cost
+                    cost = calculate_token_cost("gemini", self.model_name, prompt_tokens, completion_tokens)
+
+                    _set_run_metadata(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        token_cost_usd=cost,
+                        model=self.model_name,
+                        provider="gemini"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to record streaming token usage for Gemini: {e}")
         except errors.APIError as e:
             if e.code == 429:
                 logger.error("Quota exceeded during streaming.")
