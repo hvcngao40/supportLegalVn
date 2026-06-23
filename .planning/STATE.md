@@ -24,8 +24,8 @@ See: .planning/PROJECT.md (updated 2026-04-24)
 ## Current Status
 
 - **Status**: Milestone v3.0 Execution
-- **Phase**: 21 (Tích hợp LangSmith qua @traceable để theo dõi hệ thống, đo lường chi phí token và tốc độ) — CONTEXT GATHERED
-- **Next Step**: Plan Phase 21 for LangSmith integration
+- **Phase**: 21 (Tích hợp LangSmith qua @traceable để theo dõi hệ thống, đo lường chi phí token và tốc độ) — COMPLETE
+- **Next Step**: Proceed to Phase 20 (Frontend AI Chat Integration)
 
 ## Milestones
 
