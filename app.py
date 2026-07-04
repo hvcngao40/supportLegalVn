@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -10,12 +11,16 @@ from unittest.mock import AsyncMock, MagicMock
 # import traceback
 
 import llama_index.core
+from mcp import types
+from mcp.server import Server
+from mcp.server.sse import SseServerTransport
+from fastapi.responses import Response
+
 # from torch.cuda import device
 
-from api.models import HealthResponse
+from schemas.models import HealthResponse
 from core.health import build_health_status
 from warnup import warm_up_qdrant
-
 llama_index.core.global_handler = None
 
 load_dotenv()
@@ -160,6 +165,7 @@ async def lifespan(app: FastAPI):
         await warm_up_qdrant(client, "legal_articles")
 
         f_retriever = SQLiteFTS5Retriever()
+        app.state.f_retriever = f_retriever  # Make FTS retriever available for MCP tools
         
         hybrid_retriever = LegalHybridRetriever(
             classifier=None,
@@ -210,6 +216,9 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# 1. Khởi tạo mcp_server bằng lớp Server cốt lõi (thay vì FastMCP)
+mcp_server = Server("SupportLegalVn_MCP_Server")
+
 from google.api_core import exceptions
 
 @app.exception_handler(exceptions.ResourceExhausted)
@@ -231,6 +240,76 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": str(exc)} #, "traceback": traceback.format_exc()}
     )
 
+# -------------------------------------------------------------------------
+# MCP TOOLS: Cấu hình theo chuẩn Server
+# -------------------------------------------------------------------------
+@mcp_server.list_tools()
+async def handle_list_tools() -> list[types.Tool]:
+    """Khai báo danh sách các công cụ cho MCP Client biết"""
+    return [
+        types.Tool(
+            name="search_legal_context",
+            description="Tìm kiếm các điều luật, nghị định của Việt Nam phù hợp với tình huống người dùng. Sử dụng tool này đầu tiên khi người dùng hỏi về luật.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Nội dung cần tìm kiếm"},
+                    "top_k": {"type": "integer", "default": 5}
+                },
+                "required": ["query"]
+            }
+        ),
+        types.Tool(
+            name="get_full_document",
+            description="Truy xuất toàn văn của một văn bản pháp luật khi cần đọc toàn bộ bối cảnh.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "document_id": {"type": "string", "description": "ID của văn bản pháp luật"}
+                },
+                "required": ["document_id"]
+            }
+        )
+    ]
+
+@mcp_server.call_tool()
+async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
+    """Xử lý logic khi MCP Client gọi một công cụ cụ thể"""
+    if not arguments:
+        arguments = {}
+
+    if name == "search_legal_context":
+        query = arguments.get("query")
+        try:
+            results = await app.state.pipeline.acustom_query(query=query)
+            if not results:
+                return [types.TextContent(type="text", text="Không tìm thấy quy định pháp luật nào phù hợp với tình huống này.")]
+
+            formatted_context = "\n\n".join(
+                f"--- BẮT ĐẦU TRÍCH ĐOẠN ---\n"
+                f"Văn bản ID: {res.document_id}\n"
+                f"Điều/Khoản: {res.article_name}\n"
+                f"Nội dung: {res.content}\n"
+                f"--- KẾT THÚC TRÍCH ĐOẠN ---"
+                for res in results
+            )
+            # Chuẩn MCP bắt buộc trả về một list các Object Content
+            return [types.TextContent(type="text", text=formatted_context)]
+        except Exception as e:
+            return [types.TextContent(type="text", text=f"Lỗi hệ thống khi tìm kiếm: {str(e)}")]
+
+    elif name == "get_full_document":
+        document_id = arguments.get("document_id")
+        try:
+            doc = await app.state.f_retriever.get_articles_by_uuids([document_id])
+            if not doc:
+                return [types.TextContent(type="text", text=f"Không tìm thấy văn bản nào với ID: {document_id}")]
+            return [types.TextContent(type="text", text=f"Tên văn bản: {doc.text}\n")]
+        except Exception as e:
+            return [types.TextContent(type="text", text=f"Lỗi hệ thống khi truy xuất văn bản: {str(e)}")]
+
+    raise ValueError(f"Unknown tool: {name}")
+
 # Include Routers
 from api.v1.endpoints import router as api_v1
 app.include_router(api_v1, prefix="/api/v1", tags=["v1"])
@@ -239,8 +318,7 @@ app.include_router(api_v1, prefix="/api/v1", tags=["v1"])
 # allowed_origins = _parse_allowed_origins()
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=allowed_origins,
-    allow_origins=["*"],  # For development; restrict in production
+    allow_origins=["*"],  # Bạn đã để "*" là rất tốt cho dev
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -249,6 +327,73 @@ app.add_middleware(
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     return await build_health_status()
+
+# 4. Tạo kết nối SSE tích hợp vào FastAPI
+@mcp_server.call_tool()
+async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
+    if not arguments:
+        arguments = {}
+
+    if name == "search_legal_context":
+        query = arguments.get("query")
+
+        # 1. Log query mà AI truyền vào
+        print(f"\n[MCP LOG] AI đang tìm kiếm query: '{query}'", file=sys.stderr, flush=True)
+
+        try:
+            results = await app.state.pipeline.acustom_query(query=query)
+
+            # 2. Log số lượng kết quả tìm được
+            if not results:
+                print(f"[MCP LOG] CẢNH BÁO: Không tìm thấy kết quả RAG nào!", file=sys.stderr, flush=True)
+                return [types.TextContent(type="text", text="Không tìm thấy quy định pháp luật nào.")]
+
+            print(f"[MCP LOG] THÀNH CÔNG: Tìm thấy {len(results)} chunks dữ liệu.", file=sys.stderr, flush=True)
+
+            formatted_context = "\n\n".join(...)
+            return [types.TextContent(type="text", text=formatted_context)]
+
+        except Exception as e:
+            # 3. Log lỗi nếu pipeline bị crash
+            print(f"[MCP LOG] LỖI CRASH RAG: {str(e)}", file=sys.stderr, flush=True)
+            return [types.TextContent(type="text", text=f"Lỗi hệ thống: {str(e)}")]
+# Thêm một class Response ảo để ngăn FastAPI gửi thêm HTTP headers
+class AsgiHandledResponse(Response):
+    """
+    Response giả dành cho các endpoint đã được xử lý ở tầng ASGI thấp.
+    Nó ngăn chặn FastAPI gọi hàm send() lần thứ 2.
+    """
+    async def __call__(self, scope, receive, send) -> None:
+        pass # Không làm gì cả vì MCP Transport đã lo phần gửi responsenh)
+# -------------------------------------------------------------------------
+# Chỉ định chính xác URL mà MCP Client sẽ dùng để POST tin nhắn
+sse_transport = SseServerTransport("/mcp/messages")
+
+@app.get("/mcp/sse")
+async def sse_endpoint(request: Request):
+    """Xử lý request GET từ Client để thiết lập luồng SSE EventSource"""
+    async with sse_transport.connect_sse(request.scope, request.receive, request._send) as streams:
+        read_stream, write_stream = streams
+        await mcp_server.run(
+            read_stream,
+            write_stream,
+            mcp_server.create_initialization_options()
+        )
+    # Trả về một Response trống hợp lệ để FastAPI không bị lỗi 'NoneType'
+    return AsgiHandledResponse()
+
+@app.post("/mcp/messages")
+async def messages_endpoint(request: Request):
+    """Xử lý request POST chứa các lệnh gọi Tool từ Client"""
+    await sse_transport.handle_post_message(request.scope, request.receive, request._send)
+    # Trả về Response trống để hoàn thành vòng đời request của FastAPI
+    return AsgiHandledResponse()
+
+# Xử lý trường hợp IDE gửi nhầm POST hoặc DELETE vào endpoint sse để tránh crash 400/405
+@app.post("/mcp/sse")
+async def sse_post_fallback(request: Request):
+    await sse_transport.handle_post_message(request.scope, request.receive, request._send)
+    return AsgiHandledResponse()
 
 if __name__ == "__main__":
     import uvicorn
