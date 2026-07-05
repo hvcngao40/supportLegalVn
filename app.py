@@ -19,6 +19,7 @@ from fastapi.responses import Response
 # from torch.cuda import device
 
 from schemas.models import HealthResponse
+from core.audit_log import AuditLogConfig, ClickHouseAuditLogMiddleware
 from core.health import build_health_status
 from warnup import warm_up_qdrant
 llama_index.core.global_handler = None
@@ -215,6 +216,7 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+app.add_middleware(ClickHouseAuditLogMiddleware, config=AuditLogConfig.from_env())
 
 # 1. Khởi tạo mcp_server bằng lớp Server cốt lõi (thay vì FastMCP)
 mcp_server = Server("SupportLegalVn_MCP_Server")

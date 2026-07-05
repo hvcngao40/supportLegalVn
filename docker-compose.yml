@@ -71,6 +71,33 @@ services:
         limits:
           memory: 6G # Giới hạn RAM tối đa để đảm bảo ổn định
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.6
+    container_name: legal-clickhouse
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./scripts/clickhouse_request_log.sql:/docker-entrypoint-initdb.d/001_request_log.sql:ro
+    networks:
+      - legal-network
+    environment:
+      - CLICKHOUSE_USER=admin
+      - CLICKHOUSE_PASSWORD=1235
+    ulimits:
+      # Tăng giới hạn file mở (Bắt buộc đối với ClickHouse để tránh crash)
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 networks:
   legal-network:
     name: legal-network
@@ -79,3 +106,4 @@ networks:
 volumes:
   qdrant_data:
   redis_data:
+  clickhouse_data:

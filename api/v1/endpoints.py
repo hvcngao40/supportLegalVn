@@ -10,6 +10,7 @@ from typing import Optional, List
 from schemas.models import AskRequest, AskResponse, HealthResponse, SearchArticlesRequest, SearchArticlesResponse, ChatMessage
 from api.dependencies import rate_limit_ask, rate_limit_search
 from pydantic import BaseModel
+from core.audit_log import audit_event
 from core.health import build_health_status
 from core.constants import traceable
 
@@ -32,6 +33,7 @@ def _stream_iterator(pipeline, query: str, chat_history: Optional[List[ChatMessa
         return pipeline.astream_query(query)
 
 @router.post("/ask", response_model=AskResponse, response_model_exclude_unset=True) #, dependencies=[Depends(rate_limit_ask)])
+@audit_event("legal_ask")
 @traceable(name="POST /ask", run_type="chain")
 async def ask(request: AskRequest, fastapi_req: Request):
     pipeline = fastapi_req.app.state.pipeline
@@ -39,6 +41,7 @@ async def ask(request: AskRequest, fastapi_req: Request):
     return result
 
 @router.post("/stream", dependencies=[Depends(rate_limit_ask)])
+@audit_event("legal_stream")
 @traceable(name="POST /stream", run_type="chain")
 async def stream_ask(request: AskRequest, fastapi_req: Request):
     pipeline = fastapi_req.app.state.pipeline
@@ -94,6 +97,7 @@ def _parse_chat_history(encoded_history: Optional[str]) -> Optional[List[ChatMes
 
 
 @router.get("/stream", dependencies=[Depends(rate_limit_ask)])
+@audit_event("legal_stream")
 @traceable(name="GET /stream", run_type="chain")
 async def stream_ask_get(query: str, fastapi_req: Request, chat_history: Optional[str] = None):
     pipeline = fastapi_req.app.state.pipeline
@@ -218,6 +222,7 @@ async def test_classifier_endpoint(request: TestRAGRequest, fastapi_req: Request
 
 
 @router.post("/search-articles", response_model=SearchArticlesResponse, dependencies=[Depends(rate_limit_search)])
+@audit_event("legal_search_articles")
 @traceable(name="POST /search-articles", run_type="chain")
 async def search_articles(request: SearchArticlesRequest, fastapi_req: Request):
     """
