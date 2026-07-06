@@ -21,7 +21,6 @@ from fastapi.responses import Response
 from schemas.models import HealthResponse
 from core.audit_log import AuditLogConfig, ClickHouseAuditLogMiddleware
 from core.health import build_health_status
-from warnup import warm_up_qdrant
 llama_index.core.global_handler = None
 
 load_dotenv()
@@ -135,6 +134,7 @@ async def lifespan(app: FastAPI):
             app.state.pipeline = mock
             print("[Startup] Test mode detected; using mock pipeline.")
             yield
+            await _close_postgres_pool(app)
             return
 
         _validate_production_environment()
@@ -163,6 +163,7 @@ async def lifespan(app: FastAPI):
             print(f"[Warning] Pre-init Qdrant client failed during startup: {e}")
         # Chạy warm-up ở đây
         client = v_retriever._get_client()
+        from warnup import warm_up_qdrant
         await warm_up_qdrant(client, "legal_articles")
 
         f_retriever = SQLiteFTS5Retriever()
@@ -209,6 +210,22 @@ async def lifespan(app: FastAPI):
         app.state.pipeline = mock
 
     yield
+    await _close_postgres_pool(app)
+
+
+async def _close_postgres_pool(app: FastAPI) -> None:
+    pool = getattr(app.state, "postgres_pool", None)
+    if pool is None:
+        return
+    try:
+        await pool.close()
+    finally:
+        if hasattr(app.state, "postgres_pool"):
+            delattr(app.state, "postgres_pool")
+        if hasattr(app.state, "gamification_store"):
+            delattr(app.state, "gamification_store")
+        if hasattr(app.state, "gamification_worker"):
+            delattr(app.state, "gamification_worker")
 
 app = FastAPI(
     title="Legal Support VN API",

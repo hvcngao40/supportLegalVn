@@ -22,6 +22,9 @@ class TestRAGRequest(BaseModel):
 
 router = APIRouter()
 
+from api.v1.gamification import router as gamification_router
+router.include_router(gamification_router)
+
 
 def _stream_iterator(pipeline, query: str, chat_history: Optional[List[ChatMessage]]):
     try:

@@ -39,6 +39,7 @@ uvicorn
 sse-starlette
 httpx
 aiosqlite
+asyncpg
 
 # --- Testing ---
 pytest
